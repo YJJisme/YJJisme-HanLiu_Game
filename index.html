@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>寒流</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+  <meta name="color-scheme" content="dark">
+</head>
+<body>
+  <main class="container">
+    <div id="startScreen">
+      <h1 class="title">寒流</h1>
+      <p class="intro">寒流來襲，您在極致的寒冷中失去知覺...</p>
+      <div class="controls">
+        <input id="playerName" class="input" type="text" placeholder="輸入名字" aria-label="輸入名字">
+      </div>
+      <div class="actions">
+        <button id="startBtn" class="button" type="button">開始遊戲</button>
+        <button id="leaderboardBtn" class="button" type="button">排行榜</button>
+        <button id="aboutBtn" class="button" type="button">關於遊戲</button>
+      </div>
+      <div class="controls" id="debugControls">
+        <label for="debugLevelInput" class="dialog-text" style="margin-top:1rem">除錯模式：選擇起始關卡</label>
+      </div>
+      <div class="actions">
+        <input id="debugLevelInput" class="input" type="number" min="1" max="10" value="1" aria-label="選擇關卡">
+        <button id="debugStartBtn" class="button" type="button">啟動測試關卡</button>
+      </div>
+    </div>
+  </main>
+  <div id="characterDisplay" hidden>
+    <img id="characterImage" alt="角色顯示">
+  </div>
+  <div id="hpBar" hidden>
+    <span class="hp-label">生命</span>
+    <div class="hp-progress"><div class="hp-fill" style="width:100%"></div></div>
+    <span class="hp-text" id="hpText">2/2</span>
+  </div>
+  <div id="modalBackdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle" class="modal-title">排行榜</h2>
+      <div class="modal-actions">
+        <button id="rankHan" class="button" type="button">韓愈線排行榜</button>
+        <button id="rankLiu" class="button" type="button">柳宗元線排行榜</button>
+        <button id="rankAll" class="button" type="button">綜合排行榜</button>
+      </div>
+      <div id="leaderboardContent" class="leaderboard-content"></div>
+      <button id="rankClear" class="button" type="button">清除排行榜</button>
+      <button id="modalClose" class="modal-close" type="button" aria-label="關閉">×</button>
+    </div>
+  </div>
+</body>
+</html>
