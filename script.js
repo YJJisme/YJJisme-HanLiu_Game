@@ -10,6 +10,16 @@ const rankAll = document.getElementById('rankAll');
 const aboutBtn = document.getElementById('aboutBtn');
 const debugLevelInput = document.getElementById('debugLevelInput');
 const debugStartBtn = document.getElementById('debugStartBtn');
+const DEV_PASSWORD = '3637';
+let devModeEnabled = false;
+const CLOUD_SYNC_ENDPOINT = 'https://hanliu-leaderboard.50327willy50327.workers.dev/scores';
+const CLOUD_SYNC_AUTH = '';
+const _dc = document.getElementById('debugControls');
+if (_dc) _dc.style.display = 'none';
+const _da = debugLevelInput ? debugLevelInput.parentElement : null;
+if (_da) _da.style.display = 'none';
+let appVersion = '1.1.1';
+let releaseNotes = ['加入結算插圖（SS/S/A/B/C/D 等級對應）','SS 稀有特效強化：光暈、掃光、星粒與脈動','新增稱號等級與排行榜 SS 特效（SS：泰山北斗）','調整各關卡分數至新標準（總分 220，不含夢與返照）','強化全域文字對比，避免文字與背景相近','第十關起始延遲下墜 1.2 秒，提升反應時間','第九關玩法改為「段落排序」，說明已更新','測試卡暱稱顯示「測試卡」','套用冰室照片作為背景'];
 
 let matchScore = 0;
 let errorCount = 0;
@@ -31,6 +41,9 @@ let customNumberFailText = null;
 let mismatchCounter = 0;
 let bgmAudio = null;
 let bgmEnabled = true;
+let orderFailed = false;
+let cloudSyncDisabled = false;
+let lastRunId = null;
 
 function initBgm() {
   if (bgmAudio) return;
@@ -56,6 +69,8 @@ function toggleBgm() {
   if (bgmEnabled) playBgm(); else pauseBgm();
   const btn = document.getElementById('bgmToggle');
   if (btn) btn.textContent = bgmEnabled ? '♪' : '🔇';
+  const gbtn = document.getElementById('globalBgmToggle');
+  if (gbtn) gbtn.textContent = bgmEnabled ? '♪' : '🔇';
 }
 
 function setupBgmAutoplay() {
@@ -77,6 +92,24 @@ function trackedSetInterval(fn, ms) { const id = setInterval(fn, ms); timerRegis
 function trackedSetTimeout(fn, ms) { const id = setTimeout(fn, ms); timerRegistry.timeouts.add(id); return id; }
 function clearAllTimers() { timerRegistry.intervals.forEach((id) => clearInterval(id)); timerRegistry.timeouts.forEach((id) => clearTimeout(id)); timerRegistry.intervals.clear(); timerRegistry.timeouts.clear(); }
 function systemCleanup(lockGame) { clearAllTimers(); if (lockGame === true) isGameOver = true; }
+function bumpScore(amount) {
+  matchScore += amount;
+  const bar = document.getElementById('hpBar');
+  const stEl = document.getElementById('scoreText');
+  if (stEl) stEl.textContent = String(matchScore || 0);
+  if (!bar || amount === 0) return;
+  const tip = document.createElement('div');
+  tip.className = 'score-float';
+  if (amount < 0) tip.classList.add('neg');
+  tip.textContent = `${amount > 0 ? '+' : ''}${amount}`;
+  bar.appendChild(tip);
+  tip.addEventListener('animationend', () => { tip.remove(); });
+  const st = document.getElementById('scoreText');
+  if (st) {
+    st.classList.add('score-bump');
+    st.addEventListener('animationend', () => { st.classList.remove('score-bump'); }, { once: true });
+  }
+}
 
 function getLevelType(item) {
   if (typeof item === 'number') return 'Number';
@@ -98,7 +131,7 @@ function applyLevelStyle(levelType) {
     root.style.setProperty('--bg', '#f0f8ff');
     root.style.setProperty('--fg', '#333333');
     root.style.setProperty('--muted', '#555555');
-    root.style.setProperty('--title', '#0b1f3a');
+    root.style.setProperty('--title', '#000000');
   } else if (levelType === 'Dream') {
     root.style.setProperty('--bg', '#000000');
     root.style.setProperty('--fg', '#ffffff');
@@ -131,8 +164,59 @@ function finalizeGame() {
   systemCleanup(true);
   const playerName = localStorage.getItem('hanliu_player_name') || '無名';
   currentProgress = 'Completed';
-  saveScore(playerName, matchScore, currentRoute || 'HanYu');
-  renderLeaderboardPage(currentRoute || 'HanYu', '結算：本局結果如下');
+  const route = currentRoute || 'HanYu';
+  const rk = computeRank(matchScore, orderFailed);
+  if (route === 'HanYu' && rk && rk.level === 'SS') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('傳說', [
+      { image: 'hanyu_ss.png', alt: '泰山北斗', text: '唯有韓愈能超越韓愈。你立於群山之巔，視天下為筆墨，文道與山河同在。' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'S') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('百代文宗', [
+      { image: 'hanyu_s.png', alt: '百代文宗', text: '匹夫而為百世師，一言而為天下法。你的靈魂與韓昌黎完全共振，文能載道，武能平亂。' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'A') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('唐宋八大家之首', [
+      { image: 'hanyu_a.png', alt: '唐宋八大家之首', text: '文筆雄健，氣勢磅礡。雖偶有波折，但你堅持古文運動，力抗流俗。你的名字將與柳宗元並列，永載史冊。' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'B') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('剛直名臣', [
+      { image: 'hanyu_b.png', alt: '剛直名臣', text: '你性格剛直，不畏強權。雖然在文學上的細膩度稍遜一籌，但你的一身傲骨與經世濟民的熱忱，足以立足朝堂。' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'C') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('國子監祭酒', [
+      { image: 'hanyu_c.png', alt: '國子監祭酒', text: '業精於勤荒於嬉。你對韓學有所涉獵，但尚未融會貫通。你在國子監授課，台下學生或睡或點頭。' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'D') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('時運不濟', [
+      { image: 'hanyu_d.png', alt: '落第秀才', text: '二鳥賦中歎不遇，你的才華似乎還需要時間打磨。或者，你其實更適合去隔壁棚找李白喝酒？' }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  if (rk && rk.level === 'E') {
+    saveScore(playerName, matchScore, route);
+    showBlockModal('非我族類', [
+      { image: 'han_yu_aged_dead.png', alt: '非我族類', text: rk.description }
+    ], () => { renderLeaderboardPage(route, '結算：本局結果如下'); });
+    return;
+  }
+  saveScore(playerName, matchScore, route);
+  renderLeaderboardPage(route, '結算：本局結果如下');
 }
 
 function handleError(levelType) {
@@ -201,9 +285,8 @@ function handleError(levelType) {
     setTimeout(() => {
       death.remove();
       currentProgress = `Failed at Level ${currentLevel}`;
-      const playerName = localStorage.getItem('hanliu_player_name') || '無名';
-      saveScore(playerName, matchScore, currentRoute || 'HanYu');
-      renderLeaderboardPage(currentRoute || 'HanYu', '遺憾地結束了這段困頓的求仕之旅...');
+      currentRoute = currentRoute || 'HanYu';
+      finalizeGame();
       errorLock = false;
       customNumberFailText = null;
     }, 2500);
@@ -212,6 +295,7 @@ function handleError(levelType) {
 
 function goToNextLevel() {
   systemCleanup(false);
+  clearMainContent(true);
   currentLevelIndex += 1;
   const item = gameFlow[currentLevelIndex];
   if (item === undefined) { finalizeGame(); return; }
@@ -238,15 +322,15 @@ function startNumberLevel(n) {
   updateCharacterDisplay();
   showHpBar();
   updateHpBar();
-  if (n === 1) { startSentenceLevel(); return; }
-  if (n === 2) { startExamLevel(); return; }
-  if (n === 3) { startLetterMazeLevel(); return; }
-  if (n === 4) { startPoetryLevel(); return; }
-  if (n === 5) { startFiveOriginalsLevel(); return; }
-  if (n === 6) { startHuaiXiLevel(); return; }
-  if (n === 7) { startBuddhaBoneLevel(); return; }
-  if (n === 8) { startCrocodileLevel(); return; }
-  if (n === 9) { startEpitaphLevel(); return; }
+  if (n === 1) { presentLevelIntro('第一關：句讀明義', '在題目中於適當處輸入「/」進行斷句，完成即通關。', startSentenceLevel); return; }
+  if (n === 2) { presentLevelIntro('第二關：四次科舉', '點擊選項填入空格，依序完成四次試題，最後中進士。', startExamLevel); return; }
+  if (n === 3) { presentLevelIntro('第三關：三次上書', '沿白色路徑移動，依序抵達三封「函」，再前往「公府」。錯誤會扣生命。', startLetterMazeLevel); return; }
+  if (n === 4) { presentLevelIntro('第四關：結交孟郊', '先選詩名，後進行詩句填空。答對累積分數，完成後通關。', startPoetryLevel); return; }
+  if (n === 5) { presentLevelIntro('第五關：五原立論', '記憶配對：翻牌找到每一組《原》與其學說，配對完成即通關。', startFiveOriginalsLevel); return; }
+  if (n === 6) { presentLevelIntro('第六關：平定淮西', '移動滑條接住正確數字，避開錯誤與特殊項。達成目標後通關。', startHuaiXiLevel); return; }
+  if (n === 7) { presentLevelIntro('第七關：諫迎佛骨', '第一段接住「佛」影響局勢；第二段以行動平衡怒氣、勸諫與朝臣支持。達成條件即通關。', startBuddhaBoneLevel); return; }
+  if (n === 8) { presentLevelIntro('第八關：祭鱷魚文', '在棋盤上蛇形移動，依序吃到句子的字。撞牆或吃錯會受傷。', startCrocodileLevel); return; }
+  if (n === 9) { presentLevelIntro('第九關：為友撰銘', '將七段亂序段落以「上移／下移」排成正確順序，完成即通關；錯誤會受傷。', startEpitaphLevel); return; }
   if (n === 10) { startLevel10(); return; }
   const main = document.querySelector('main.container');
   const sec = document.createElement('section');
@@ -262,6 +346,37 @@ function startNumberLevel(n) {
   sec.appendChild(p);
   sec.appendChild(next);
   main.appendChild(sec);
+}
+
+function presentLevelIntro(titleText, descriptionText, onStart) {
+  const main = document.querySelector('main.container');
+  if (!main) return;
+  let intro = document.getElementById('levelIntro');
+  if (!intro) {
+    intro = document.createElement('section');
+    intro.className = 'dialog-container';
+    intro.id = 'levelIntro';
+    main.appendChild(intro);
+  }
+  intro.style.display = '';
+  intro.innerHTML = '';
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = titleText || '關卡介紹';
+  const desc = document.createElement('p');
+  desc.className = 'dialog-text';
+  desc.textContent = descriptionText || '';
+  const startBtn = document.createElement('button');
+  startBtn.className = 'button';
+  startBtn.type = 'button';
+  startBtn.textContent = '開始遊戲';
+  startBtn.addEventListener('click', () => {
+    intro.style.display = 'none';
+    if (typeof onStart === 'function') onStart();
+  });
+  intro.appendChild(title);
+  intro.appendChild(desc);
+  intro.appendChild(startBtn);
 }
 
 function startBuddhaBoneLevel() {
@@ -431,57 +546,53 @@ function startBuddhaBoneLevel() {
       tokens.push(token); placed.push({ x, y });
     }
   }
-  function endP1(success) {
-    if (p1Ended) return;
-    p1Ended = true;
-    running = false;
-    clearInterval(spawnTimer);
-    if (endTimer) clearTimeout(endTimer);
-    activeItems().forEach(it => { if (!it.removed) { it.removed = true; p1.removeChild(it.el); } });
-    willpowerDebuff = !success;
-    const msg = success ? '意志阻擋成功' : '意志阻擋失敗';
-    if (success) {
-      const count = 28;
-      let done = 0;
-      const rainItems = [];
-      for (let i = 0; i < count; i++) {
-        const el = document.createElement('div');
-        el.className = 'fall-item';
-        el.textContent = '佛';
-        el.style.pointerEvents = 'none';
-        p1.appendChild(el);
-        const v = 0.12 + Math.random() * 0.18;
-        const it = { el, x: Math.random(), y: -0.1, v, reached: false };
-        el.style.left = (it.x * 100) + '%';
-        el.style.top = (it.y * 100) + '%';
-        rainItems.push(it);
+function endP1(success) {
+  if (p1Ended) return;
+  p1Ended = true;
+  running = false;
+  clearInterval(spawnTimer);
+  if (endTimer) clearTimeout(endTimer);
+  activeItems().forEach(it => { if (!it.removed) { it.removed = true; p1.removeChild(it.el); } });
+  willpowerDebuff = !success;
+  const msg = success ? '意志阻擋成功' : '意志阻擋失敗';
+  const count = 28;
+  let done = 0;
+  const rainItems = [];
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'fall-item';
+    el.textContent = '佛';
+    el.style.pointerEvents = 'none';
+    p1.appendChild(el);
+    const v = 0.12 + Math.random() * 0.18;
+    const it = { el, x: Math.random(), y: -0.1, v, reached: false };
+    el.style.left = (it.x * 100) + '%';
+    el.style.top = (it.y * 100) + '%';
+    rainItems.push(it);
+  }
+  let last = nowMs();
+  function rainLoop() {
+    const ts = nowMs();
+    const dt = Math.min(0.033, (ts - last) / 1000);
+    last = ts;
+    rainItems.forEach(it => {
+      if (it.reached) return;
+      it.y += it.v * dt;
+      it.el.style.top = (it.y * 100) + '%';
+      if (it.y >= 0.92) {
+        it.reached = true;
+        done += 1;
+        if (it.el.parentNode) p1.removeChild(it.el);
       }
-      let last = nowMs();
-      function rainLoop() {
-        const ts = nowMs();
-        const dt = Math.min(0.033, (ts - last) / 1000);
-        last = ts;
-        rainItems.forEach(it => {
-          if (it.reached) return;
-          it.y += it.v * dt;
-          it.el.style.top = (it.y * 100) + '%';
-          if (it.y >= 0.92) {
-            it.reached = true;
-            done += 1;
-            if (it.el.parentNode) p1.removeChild(it.el);
-          }
-        });
-        if (done < count) {
-          requestAnimationFrame(rainLoop);
-        } else {
-          showConfirmModal('提示', '佛骨進宮', '準備勸諫', () => { renderP2(); });
-        }
-      }
+    });
+    if (done < count) {
       requestAnimationFrame(rainLoop);
     } else {
-      showConfirmModal('提示', msg, '進入下一階段', () => { renderP2(); });
+      showConfirmModal('提示', '佛骨進宮', '準備勸諫', () => { renderP2(); });
     }
   }
+  requestAnimationFrame(rainLoop);
+}
   function spawnFo() {
     const el = document.createElement('div');
     el.className = 'fall-item';
@@ -520,13 +631,7 @@ function startBuddhaBoneLevel() {
       }
       if (it.y > 1.05 && !it.removed) {
         it.removed = true;
-        if (!it.caught) {
-          misses += 1;
-          handleError('Number');
-          willpowerDebuff = true;
-          endP1(false);
-          return;
-        }
+        if (!it.caught) { misses += 1; willpowerDebuff = true; }
         p1.removeChild(it.el);
       }
     });
@@ -537,7 +642,7 @@ function startBuddhaBoneLevel() {
   document.addEventListener('keydown', (ev) => { if (!running || isGameOver) return; if (ev.key === 'ArrowLeft' || ev.key === 'a') setCatcherX(ctrl.x - ctrl.speed); if (ev.key === 'ArrowRight' || ev.key === 'd') setCatcherX(ctrl.x + ctrl.speed); });
   p1.addEventListener('mousemove', (ev) => { const r = p1.getBoundingClientRect(); setCatcherX((ev.clientX - r.left) / r.width); });
   p1.addEventListener('touchmove', (ev) => { const t = ev.touches[0]; if (!t) return; const r = p1.getBoundingClientRect(); setCatcherX((t.clientX - r.left) / r.width); }, { passive: true });
-  showConfirmModal('提示', '準備好了嗎？', '準備好了', () => { running = true; lastTs = nowMs(); requestAnimationFrame(gameLoop); });
+  showConfirmModal('提示', '準備好了嗎？', '準備好了', () => { running = true; lastTs = nowMs(); endTimer = setTimeout(() => endP1(misses === 0), 10000); requestAnimationFrame(gameLoop); });
 
   function renderP2() {
     level.innerHTML = '';
@@ -584,7 +689,7 @@ function startBuddhaBoneLevel() {
       }
       if (pleaPoint >= 4 && rageValue < 100 && courtOpinionValue >= 80) {
         locked = true;
-        showBlockModal('通關', [{ text: '進入潮州貶謫' }], () => { level.style.display = 'none'; goToNextLevel(); });
+        showBlockModal('通關', [{ text: '進入潮州貶謫' }], () => { bumpScore(25); level.style.display = 'none'; goToNextLevel(); });
       }
     }
     const a = document.createElement('button'); a.className = 'button option'; a.type = 'button'; a.textContent = '終極勸諫'; a.addEventListener('click', () => applyAction('A'));
@@ -780,7 +885,7 @@ function startCrocodileLevel() {
           currentIndex += 1;
           hintShown = false;
           lastProgressAt = performance.now();
-          if (currentIndex >= chars.length) { stopGame(); showBlockModal('通關', [{ text: '鱷魚被驅逐，江岸重歸寧靜。' }], () => { level.style.display = 'none'; goToNextLevel(); }); return; }
+          if (currentIndex >= chars.length) { stopGame(); showBlockModal('通關', [{ text: '鱷魚被驅逐，江岸重歸寧靜。' }], () => { bumpScore(20); level.style.display = 'none'; goToNextLevel(); }); return; }
         } else { onFail(); return; }
       } else { snake.pop(); }
     }
@@ -798,7 +903,29 @@ function startCrocodileLevel() {
     else if (k === 'ArrowDown' || k === 's') { if (velocity.y !== -1) velocity = { x: 0, y: 1 }; }
   };
   document.addEventListener('keydown', keyListener, { passive: false });
-  gameLoop = trackedSetInterval(step, 1000 / 8);
+  let touchStart = null;
+  stage.addEventListener('touchstart', (ev) => {
+    const t = ev.touches[0];
+    if (!t) return;
+    touchStart = { x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  stage.addEventListener('touchend', (ev) => {
+    if (!touchStart) return;
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (!t) { touchStart = null; return; }
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    touchStart = null;
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) { if (velocity.x !== 1) velocity = { x: -1, y: 0 }; }
+      else { if (velocity.x !== -1) velocity = { x: 1, y: 0 }; }
+    } else {
+      if (dy < 0) { if (velocity.y !== 1) velocity = { x: 0, y: -1 }; }
+      else { if (velocity.y !== -1) velocity = { x: 0, y: 1 }; }
+    }
+  }, { passive: true });
+  gameLoop = trackedSetInterval(step, 1000 / 5);
   trackedSetInterval(() => {
     const now = performance.now();
     const idleMs = now - lastProgressAt;
@@ -831,107 +958,116 @@ function startEpitaphLevel() {
 
   const intro = document.createElement('p');
   intro.className = 'dialog-text';
-  intro.textContent = '請精確輸入下列文本（含標點）：';
+  intro.textContent = '請將段落排序成完整文章：';
   level.appendChild(intro);
 
-  const targetText = '子厚，諱宗元。七世祖慶，為拓跋魏侍中，封濟陰公。曾伯祖奭，為唐宰相，與褚遂良、韓瑗俱得罪武后，死高宗朝。皇考諱鎮，以事母棄太常博士，求為縣令江南。其後以不能媚權貴，失禦史。權貴人死，乃複拜侍御史。號為剛直，所與遊皆當世名人。';
-  const target = document.createElement('p');
-  target.className = 'dialog-text';
-  target.textContent = targetText;
-  level.appendChild(target);
-  target.style.userSelect = 'none';
-  target.addEventListener('selectstart', (e) => e.preventDefault());
-  target.addEventListener('copy', (e) => e.preventDefault());
-  target.addEventListener('cut', (e) => e.preventDefault());
-  target.addEventListener('contextmenu', (e) => e.preventDefault());
+  const correct = [
+    '子厚，諱宗元。',
+    '七世祖慶，為拓跋魏侍中，封濟陰公。',
+    '曾伯祖奭，為唐宰相，與褚遂良、韓瑗俱得罪武后，死高宗朝。',
+    '皇考諱鎮，以事母棄太常博士，求為縣令江南。',
+    '其後以不能媚權貴，失禦史。',
+    '權貴人死，乃複拜侍御史。',
+    '號為剛直，所與遊皆當世名人。'
+  ];
+  const toText = (arr) => arr.join('');
+  let order = correct.slice();
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = order[i]; order[i] = order[j]; order[j] = t;
+  }
 
-  const input = document.createElement('textarea');
-  input.className = 'typing-input';
-  input.rows = 6;
-  input.placeholder = '從頭開始輸入…';
-  level.appendChild(input);
-  input.addEventListener('paste', (e) => { e.preventDefault(); });
-  input.addEventListener('drop', (e) => { e.preventDefault(); });
-  input.addEventListener('contextmenu', (e) => { e.preventDefault(); });
-  input.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { e.preventDefault(); return; }
-    if (e.shiftKey && e.key === 'Insert') { e.preventDefault(); return; }
-  });
+  const list = document.createElement('div');
+  list.className = 'ordering-list';
+  level.appendChild(list);
 
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
-  const submit = document.createElement('button');
-  submit.className = 'button';
-  submit.type = 'button';
-  submit.textContent = '提交';
-  actions.appendChild(submit);
+  const checkBtn = document.createElement('button');
+  checkBtn.className = 'button';
+  checkBtn.type = 'button';
+  checkBtn.textContent = '檢查答案';
+  const shuffleBtn = document.createElement('button');
+  shuffleBtn.className = 'button';
+  shuffleBtn.type = 'button';
+  shuffleBtn.textContent = '重新洗牌';
+  actions.appendChild(checkBtn);
+  actions.appendChild(shuffleBtn);
   level.appendChild(actions);
 
-  const status = document.createElement('p');
-  status.className = 'dialog-text';
-  status.textContent = `進度：0 / ${targetText.length}`;
-  level.appendChild(status);
-
   let locked = false;
-  function resetChallenge() {
-    locked = false;
-    input.disabled = false;
-    input.value = '';
-    status.textContent = `進度：0 / ${targetText.length}`;
-    input.focus();
+
+  function renderList() {
+    list.innerHTML = '';
+    order.forEach((text, idx) => {
+      const row = document.createElement('div');
+      row.className = 'ordering-item';
+      const para = document.createElement('p');
+      para.className = 'dialog-text';
+      para.textContent = text;
+      const controls = document.createElement('div');
+      controls.className = 'actions';
+      const up = document.createElement('button');
+      up.className = 'button';
+      up.type = 'button';
+      up.textContent = '上移';
+      const down = document.createElement('button');
+      down.className = 'button';
+      down.type = 'button';
+      down.textContent = '下移';
+      up.addEventListener('click', () => {
+        if (locked || isGameOver || blockingModalOpen) return;
+        if (idx <= 0) { handleError('Number'); return; }
+        const tmp = order[idx - 1]; order[idx - 1] = order[idx]; order[idx] = tmp;
+        renderList();
+      });
+      down.addEventListener('click', () => {
+        if (locked || isGameOver || blockingModalOpen) return;
+        if (idx >= order.length - 1) { handleError('Number'); return; }
+        const tmp = order[idx + 1]; order[idx + 1] = order[idx]; order[idx] = tmp;
+        renderList();
+      });
+      controls.appendChild(up);
+      controls.appendChild(down);
+      row.appendChild(para);
+      row.appendChild(controls);
+      list.appendChild(row);
+    });
   }
-  window.level9Reset = resetChallenge;
 
-  input.addEventListener('input', () => {
-    if (locked || isGameOver || blockingModalOpen) return;
-    const len = input.value.length;
-    status.textContent = `進度：${len} / ${targetText.length}`;
-  });
+  function resetOrdering() {
+    locked = false;
+    order = correct.slice();
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = order[i]; order[i] = order[j]; order[j] = t;
+    }
+    renderList();
+  }
+  window.level9Reset = resetOrdering;
 
-  let composing = false;
-  input.addEventListener('compositionstart', () => { composing = true; });
-  input.addEventListener('compositionend', () => { composing = false; });
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Enter') return;
-    ev.preventDefault();
+  checkBtn.addEventListener('click', () => {
     if (locked || isGameOver || blockingModalOpen) return;
-    if (composing) return;
-    const v = input.value;
-    if (v === targetText) {
+    const ok = toText(order) === toText(correct);
+    if (ok) {
       locked = true;
-      input.disabled = true;
       showBlockModal('通關', [
         { text: '墓誌銘完成，字跡剛勁有力，韓愈表情釋然。' },
         { text: '「文成！ 你明白了文以載道的真義，在公義與私情之間劃下了最完美的句點。你的道統，無人可撼動。」' },
-      ], () => { level.style.display = 'none'; goToNextLevel(); });
+      ], () => { bumpScore(20); level.style.display = 'none'; goToNextLevel(); });
     } else {
-      locked = true;
-      input.disabled = true;
       showPunishOverlay();
       handleError('Number');
     }
   });
 
-  submit.addEventListener('click', () => {
+  shuffleBtn.addEventListener('click', () => {
     if (locked || isGameOver || blockingModalOpen) return;
-    if (composing) return;
-    const v = input.value;
-    if (v === targetText) {
-      locked = true;
-      input.disabled = true;
-      showBlockModal('通關', [
-        { text: '墓誌銘完成，字跡剛勁有力，韓愈表情釋然。' },
-        { text: '「文成！ 你明白了文以載道的真義，在公義與私情之間劃下了最完美的句點。你的道統，無人可撼動。」' },
-      ], () => { level.style.display = 'none'; goToNextLevel(); });
-    } else {
-      locked = true;
-      input.disabled = true;
-      showPunishOverlay();
-      handleError('Number');
-    }
+    resetOrdering();
   });
 
-  showConfirmModal('提示', '準備好了嗎？開始臨摹。', '開始', () => { input.focus(); });
+  renderList();
+  showConfirmModal('提示', '準備好了嗎？開始排序。', '開始');
 }
 
 function startFiveOriginalsLevel() {
@@ -1007,7 +1143,7 @@ function startFiveOriginalsLevel() {
         const b = state.open[1];
         const ok = a.dataset.key === b.dataset.key && a.dataset.type !== b.dataset.type;
         if (ok) {
-          matchScore += 10;
+          bumpScore(3);
           setTimeout(() => {
             a.classList.add('matched');
             b.classList.add('matched');
@@ -1018,7 +1154,7 @@ function startFiveOriginalsLevel() {
             mismatchCounter = 0;
             state.lock = false;
             if (state.matched === 5) {
-              showBlockModal('通關', [{ text: '文成！你將重回京城，準備大展經綸！' }], () => { level.style.display = 'none'; goToNextLevel(); });
+              showBlockModal('通關', [{ text: '文成！你將重回京城，準備大展經綸！' }], () => { bumpScore(10); level.style.display = 'none'; goToNextLevel(); });
             }
           }, 200);
         } else {
@@ -1137,7 +1273,7 @@ function startPoetryLevel() {
       btn.addEventListener('click', () => {
         const ok = t === q1Poem.title;
         if (ok) {
-          matchScore += 10;
+          bumpScore(5);
           renderQ2();
         } else {
           handleError('Number');
@@ -1157,27 +1293,29 @@ function startPoetryLevel() {
     prompt.className = 'dialog-text';
     prompt.textContent = 'Q2：詩句填空';
     level.appendChild(prompt);
-    const missingIndex = Math.floor(Math.random() * q2Poem.lines.length);
-    const displayLines = q2Poem.lines.map((ln, i) => (i === missingIndex ? '______' : ln));
+    const clauses = extractClauses(q2Poem.full_text);
+    const picked = Math.max(0, Math.floor(Math.random() * Math.max(1, clauses.length)));
     const content = document.createElement('p');
     content.className = 'dialog-text';
-    content.textContent = displayLines.join('，');
+    content.innerHTML = clauses.map((c, i) => (i === picked ? `______${c.punct}` : `${c.text}${c.punct}`)).join('');
     level.appendChild(content);
     const options = document.createElement('div');
     options.className = 'options';
-    const otherLines = poetryLevelQuestions.filter(p => p !== q2Poem).flatMap(p => p.lines);
-    const distractorLines = shuffleArray(otherLines.filter(ln => ln !== q2Poem.lines[missingIndex])).slice(0, 3);
-    const all = shuffleArray([q2Poem.lines[missingIndex], ...distractorLines]);
+    const otherClauses = poetryLevelQuestions.filter(p => p !== q2Poem).flatMap(p => extractClauses(p.full_text).map(x => x.text));
+    const distractorLines = shuffleArray(Array.from(new Set(otherClauses)).filter(ln => ln && ln !== clauses[picked].text)).slice(0, 3);
+    const all = shuffleArray([clauses[picked].text, ...distractorLines]);
     all.forEach(line => {
       const btn = document.createElement('button');
       btn.className = 'button option';
       btn.type = 'button';
       btn.textContent = line;
       btn.addEventListener('click', () => {
-        const ok = line === q2Poem.lines[missingIndex];
+        const ok = line === clauses[picked].text;
         if (ok) {
-          matchScore += 10;
-          showBlockModal('通關', [{ text: '文成！韓愈與孟郊月下推敲，將一起開創盛唐之後的另一番氣象。' }], () => { level.style.display = 'none'; goToNextLevel(); });
+          bumpScore(5);
+          showBlockModal('通關', [
+            { image: 'mengjiao_moon.png', alt: '韓愈與孟郊月下推敲', text: '文成！韓愈與孟郊月下推敲，將一起開創盛唐之後的另一番氣象。' }
+          ], () => { bumpScore(10); level.style.display = 'none'; goToNextLevel(); });
         } else {
           handleError('Number');
           if (errorCount === 1) {
@@ -1228,7 +1366,7 @@ function startHuaiXiLevel() {
   const distractNumbers = ['一','二','五','七','八','九','十','百','千','萬'];
   const specials = ['緩','繁'];
 
-  const q = sampleQuestions(huaiXiQuestions, 1)[0];
+  let q = sampleQuestions(huaiXiQuestions, 1)[0];
   const prompt = document.createElement('p');
   prompt.className = 'dialog-text';
   const masked = String(q.text).replace(/「[^」]*」/g, '「」');
@@ -1281,11 +1419,26 @@ function startHuaiXiLevel() {
           if (it.kind === 'target') {
             targetCaught = true;
             running = false;
-            showBlockModal('提示', [{ text: '目標已捕獲！' }], () => {
-              trackedSetTimeout(() => {
-                showBlockModal('通關', [{ text: '韓愈獲授刑部侍郎官服，功成名就！' }], () => { level.style.display = 'none'; goToNextLevel(); });
-              }, 700);
-            });
+            if (needSecondChallenge) {
+              needSecondChallenge = false;
+              const prev = q;
+              const pool = huaiXiQuestions.filter(x => x !== prev);
+              q = sampleQuestions(pool, 1)[0];
+              const masked2 = String(q.text).replace(/「[^」]*」/g, '「」');
+              prompt.textContent = `挑戰：${masked2}`;
+              items.splice(0, items.length);
+              Array.from(stage.querySelectorAll('.fall-item')).forEach(el => stage.removeChild(el));
+              firstWaveTargetSpawned = false;
+              showBlockModal('提示', [{ text: '第一句完成，進入第二句軍情挑戰' }], () => {
+                showCountdown(() => { running = true; lastTs = nowMs(); requestAnimationFrame(gameLoop); });
+              });
+            } else {
+              showBlockModal('提示', [{ text: '目標已捕獲！' }], () => {
+                trackedSetTimeout(() => {
+                  showBlockModal('通關', [{ text: '韓愈獲授刑部侍郎官服，功成名就！' }], () => { bumpScore(20); level.style.display = 'none'; goToNextLevel(); });
+                }, 700);
+              });
+            }
           } else if (it.kind === 'slow') {
             running = false;
             slowUntil = nowMs() + 3000;
@@ -1351,7 +1504,7 @@ function startHuaiXiLevel() {
   function activeItems() { return items.filter(it => !it.removed && !it.caught); }
   const minSpacingX = 0.2;
   const maxActive = 3;
-  const spawnIntervalMs = 1400;
+  const spawnIntervalMs = 1800;
 
   function spawn(kind, text) {
     const el = document.createElement('div');
@@ -1372,16 +1525,14 @@ function startHuaiXiLevel() {
       kind,
       x: pickX(),
       y: -0.1,
-      v: 0.12 + rng() * 0.18,
+      v: 0.06 + rng() * 0.12,
       caught: false,
       removed: false,
     };
     el.style.left = (obj.x * 100) + '%';
     el.style.top = (obj.y * 100) + '%';
     items.push(obj);
-    if (endTimer === null) {
-      endTimer = trackedSetTimeout(() => { if (!p1Ended) endP1(misses === 0); }, 10000);
-    }
+    // 無限時：不設結束計時
   }
 
   const spawnTimer = trackedSetInterval(() => {
@@ -1428,6 +1579,44 @@ function startHuaiXiLevel() {
 
 }
 
+const dreamQuestionBank = [
+  { q: '〈感二鳥賦〉中的「二鳥」主要象徵什麼？', options: ['自然界的奇異現象', '自身仕途與才德不遇', '官員競爭與爭名逐利', '對古人的景仰與學習'], correct: 1, explain: '二鳥象徵韓愈才德不遇、時運未到的處境。' },
+  { q: '〈復志賦〉中仕途不順、抱負未酬的主要原因？', options: ['才德不足', '時運未到難以施展', '家境貧寒', '沉於自然遊歷'], correct: 1, explain: '核心在時運未至，雖有才德亦難施展。' },
+  { q: '〈閔己賦〉「閔己」的主要情感是？', options: ['好奇自然', '憂慮才德未施', '自滿祖功', '追求名利'], correct: 1, explain: '作者自憂自省，感嘆才德難以施展。' },
+  { q: '〈別知賦〉作者對朋友的態度與感受？', options: ['隨緣交友', '珍視友誼感慨別離', '權勢利益不可信', '友情不如仕途重要'], correct: 1, explain: '重友情、惜別離，感人生無常。' },
+  { q: '〈元和聖德詩〉主要意圖？', options: ['描寫邊塞殘酷', '讚頌皇帝聖德與治績', '記錄臣下升遷', '諷刺藩鎮叛亂'], correct: 1, explain: '全篇在頌揚皇帝聖德與施政功績。' },
+  { q: '〈南山詩〉作者藉四季景象主要意圖？', options: ['地理位置與高度', '自然壯麗與變化', '被貶心情遭遇', '科學觀察資料'], correct: 1, explain: '四季描寫突出南山的壯麗與變化。' },
+  { q: '〈謝自然詩〉寒女謝自然的特點？', options: ['受父母寵愛', '追求神仙之術能感應', '善於農耕紡織', '長壽無災'], correct: 1, explain: '她追求修道，能感應天地幽冥。' },
+  { q: '〈赴江陵途中…〉主要情感？', options: ['讚美風景', '同情貧民與欣慰官府', '政治失意羈旅悲憤無奈', '友情與同僚讚賞'], correct: 2, explain: '重點是政治失意與漂泊的悲憤無奈。' },
+  { q: '〈暮行河堤上〉最正確理解？', options: ['人聲鼎沸熱鬧歡欣', '獨行河堤夜歸愁思無奈', '春日景色心情愉快', '與友人夜遊成功喜悅'], correct: 1, explain: '孤寂夜歸，愁思與無奈為核心意境。' },
+  { q: '〈夜歌〉主旨最正確？', options: ['恐懼與孤單', '夜晚自省心境自得', '憂慮世事力不從心', '僅描寫夜景不涉內心'], correct: 1, explain: '夜間自省，心境自得、無怨無悔。' },
+  { q: '〈原道〉內容理解最正確？', options: ['道德與仁義無關', '先王以仁義治世秩序安定', '不必學仁義道德', '貧窮與盜賊因缺制度'], correct: 1, explain: '仁義為治世根本，使社會秩序安定。' },
+  { q: '〈原性〉對「性」與「情」的看法？', options: ['性後天習得情與生俱來', '性情皆有三品可教可制', '性完全不可改變', '上等性必不犯錯'], correct: 1, explain: '性與情皆有上中下之分，可教可制。' },
+  { q: '〈原毀〉古今君子比較最正確？', options: ['古君子責人詳待己廉', '古君子責己重以周待人輕以約', '古君子不修己今君子自重', '古重名譽今重道德'], correct: 1, explain: '古君子嚴於責己、寬於待人；今反之。' },
+  { q: '〈原人〉「人道亂，而夷狄禽獸不得其情」意指？', options: ['人行為失序天地混亂', '人失正道則夷狄禽獸受影響', '自然規律不變', '聖人只治天道地道'], correct: 1, explain: '人道失序將牽動萬物秩序的失衡。' },
+  { q: '〈原鬼〉主要意思？', options: ['鬼神隨時顯現主宰萬物', '鬼神全為虛構', '人違天理民倫自然而感應有鬼', '鬼神有聲有形隨意施禍福'], correct: 2, explain: '人事違道而感應，鬼神活動隨之起應。' },
+  { q: '〈行難〉與陸先生對話指出的觀念？', options: ['階級固定不應仕途', '只重名望不重才能', '聖賢成功因家世', '不以出身限制成就'], correct: 3, explain: '真正賢才可能出自任何階層，不拘出身。' },
+  { q: '〈對禹問〉禹選擇傳子非傳賢的理由？', options: ['前定繼承可止爭亂', '子孫皆聖人', '民心期望世襲', '舜強求傳子'], correct: 0, explain: '前定繼承可止爭奪，至少能守法安定。' },
+  { q: '〈讀荀〉末評「孟氏醇乎醇，荀與揚大醇而小疵」意指？', options: ['三家影響不如百家', '思想由淺入深荀最圓滿', '孟子最純正荀揚稍有瑕疵', '荀揚最接近春秋筆法'], correct: 2, explain: '孟子最純正；荀、揚大體合道而略有瑕疵。' },
+  { q: '〈讀鶡冠子〉整體評價最貼切？', options: ['多誤價值有限', '只重文字不論思想', '推崇為最純正道家', '肯定部分篇章足以治天下並校正文字'], correct: 3, explain: '肯定其要義，認為足以治天下，並親校文字。' },
+  { q: '〈讀儀禮〉作者主要態度？', options: ['過時難懂不必研究', '制度已失毫無價值', '雖難讀仍保存周制極為珍貴', '應全由後代改制'], correct: 2, explain: '雖難讀不行於今，但保存周制，價值極高。' },
+  { q: '〈讀墨子〉儒、墨之異的根本原因？', options: ['儒墨理念完全相反', '代表不同利益必然對立', '互不瞭解經典致曲解', '後學成見各售師說非本意對立'], correct: 3, explain: '儒墨之爭多出於後學成見，非孔墨本意。' },
+  { q: '〈獲麟解〉「以德不以形」意旨？', options: ['形體特殊無法判吉凶', '外形多端易混淆', '德義判準：應聖人而出', '聖人看不出外貌故存疑'], correct: 2, explain: '麟之為麟在德義：因聖人在位而出。' },
+  { q: '〈師說〉弟子不必不如師的理由？', options: ['弟子更通世務', '制度重年齡地位對等', '聖人皆受業於眾人', '聞道有先後術業有專攻'], correct: 3, explain: '聞道有先後、術業有專攻，不以年齡地位判。' },
+  { q: '〈進學解〉提孟子荀子遭遇用意？', options: ['性格剛強難仕進', '戰亂不採用儒學', '有才德者未必遇知時', '不勤學修德更不得認可'], correct: 2, explain: '至賢亦可能不遇於世，遭貶非因無能。' },
+  { q: '〈本政〉後世政治混亂原因？', options: ['人民不遵古制', '君主過度依賴武力', '一時之法被當永恆之道', '忽略商周外史事'], correct: 2, explain: '以權宜一時之術誤作永恆之道，迷惑民心。' },
+  { q: '依〈守戒〉內容，作者認為國家面對外患時最根本的防備之道是什麼？', options: ['加強城牆與陷阱等物理防禦', '擴大領土以拉開與敵國的距離', '增強財力以儲備更多兵器', '得人——任用合適之人才'], correct: 3, explain: '末段指出「在得人」，真正防備在於用人得當，而非僅靠物理手段或地形。' },
+  { q: '從〈圬者王承福傳〉來看，王承福選擇以「圬者」為終身職業的主要原因是什麼？', options: ['該行業能快速致富，利潤遠高於農業', '認為勞力之事雖辛苦但可力而有功，取其直而無愧，心安', '他身體羸弱，只能做輕鬆的工作', '想藉此行業結識貴族以求仕進'], correct: 1, explain: '「夫镘易能，可力焉，又誠有功，取其直，雖勞無愧，吾心安焉」；以勞力換取正當報酬，雖辛苦而無愧於心。' },
+  { q: '〈諱辯〉中韓愈主張李賀舉進士並無違犯避諱，其主要論證方式為何？', options: ['指出李賀父名與「進士」二字在字形上完全不同', '以經典、律例與歷代不諱的事例證明避諱並非如此拘泥', '強調李賀文名卓絕，不應以小節拘人', '以皇甫湜的意見作為最終權威'], correct: 1, explain: '引《律》《經》《春秋》及周公、孔子、漢代例，證明「二名不偏諱」「不諱嫌名」，反證偏執避諱之非。' },
+  { q: '在〈訟風伯〉一文中，作者之所以「上訟」風伯，其核心理由為何？', options: ['風伯不遵天命，擅自掀起暴雨淹沒農作', '風伯吹散雲氣、阻止雨水成形，使旱災加劇', '風伯奪走暘烏之光，使人間失去陽氣', '風伯未接受祭祀，因此憤怒報復人間'], correct: 1, explain: '風伯「吹使離之」，使「氣不得化」「雲不得施」，雨將成而不成，導致大旱。' },
+  { q: '〈伯夷頌〉中作者認為伯夷、叔齊之行為最能體現其「特立獨行」的原因是什麼？', options: ['他們拒絕追隨微子一起逃離殷朝', '他們反對武王、周公討伐殷紂，並在殷亡後恥食周粟而餓死', '他們曾勸諫天下諸侯不要攻殷', '他們在周朝被封為賢士卻主動隱退山林'], correct: 1, explain: '反對伐紂，天下歸周後恥食其粟，餓死不顧，堅守義理、特立獨行。' },
+  { q: '根據〈子產不毀鄉校頌〉，子產主張不毀鄉校的主要理由是什麼？', options: ['鄉校是鄭國祭祀的重要場所', '留下鄉校可以讓人民自由議論，從而成就政治上的美善', '鄉校是古代制度，毀之不敬', '毀鄉校會使外國誤會鄭國無文化'], correct: 1, explain: '「可以成美……川不可防，言不可弭。下塞上聾，邦其傾矣。」保留民間議論空間，成就政治之美善。' },
+  { q: '根據〈釋言〉，韓愈認為自己「不可能傲慢放言」的主要理由是什麼？', options: ['自己年紀太輕，尚不足以在朝堂上發言', '自知才能有限，沒有任何可倚仗的背景力量', '他覺得讒言終會自然消失，不須理會', '宰相與翰林學士皆十分偏袒他，因此不會相信讒言'], correct: 1, explain: '自述「無所恃」：族親鮮少、不善交人、無宿資、弱於才而腐於力，故不可能有恃無恐、傲慢敖言。' },
+  { q: '根據〈愛直贈李君房別〉，韓愈之所以特意「為天下道其為人」的最主要原因是什麼？', options: ['他擔心世人誤以為李生仗勢倚靠貴戚', '他認為李生文采絕倫，值得廣為宣傳', '他希望南陽公能以更高官職任用李生', '他想替南陽公澄清政績，避免被誤解'], correct: 0, explain: '外人或誤以為李生托婚貴富以求利，故特為其人品（正直、敢言、審思）作證明。' },
+  { q: '韓愈在〈張中聽傳後敘〉中特別強調許遠的最大功績是什麼？', options: ['能統禦軍隊、善於作戰，屢破叛軍', '能以寬厚待人，使部將人人願意死守', '與張巡同心協力，守一城以捍全天下', '斷指明志，向賀蘭請求出兵援助'], correct: 2, explain: '「守一城，捍天下」為論旨重心，睢陽一城之守，關乎江淮與天下局勢。' },
+  { q: '文中「連理木」的出現最主要象徵什麼？', options: ['王尹治理河中府時，上天以祥瑞示其德政', '戰禍將至，天地示警', '城中將發生水患，需及早修治河道', '民間妖異之氣交結，預示災異'], correct: 0, explain: '以王尹之德「交暢」感天降祥，全文為德政頌，連理木象徵德政感天、祥瑞示現。' },
+];
+
 function startDreamLevel() {
   applyLevelStyle('Dream');
   updateCharacterDisplay();
@@ -1439,47 +1628,13 @@ function startDreamLevel() {
   const title = document.createElement('h2');
   title.className = 'modal-title';
   title.textContent = '做夢關：夢境試題';
-  // 0.1% 稀有跳過
   const rare = Math.floor(Math.random() * 1000) + 1;
   if (rare === 1) {
-    matchScore += 10;
-    goToNextLevel();
+    bumpScore(10);
+    showBlockModal('一覺好眠', [{ text: '你做了一場好夢，精神飽滿：+10 分' }], () => { sec.remove(); goToNextLevel(); });
     return;
   }
-  // 題庫與介面
-  const dreamQuestions = [
-    { q: '〈感二鳥賦〉中的「二鳥」主要象徵什麼？', options: ['自然界的奇異現象', '自身仕途與才德不遇', '官員競爭與爭名逐利', '對古人的景仰與學習'], correct: 1, explain: '二鳥象徵韓愈才德不遇、時運未到的處境。' },
-    { q: '〈復志賦〉中仕途不順、抱負未酬的主要原因？', options: ['才德不足', '時運未到難以施展', '家境貧寒', '沉於自然遊歷'], correct: 1, explain: '核心在時運未至，雖有才德亦難施展。' },
-    { q: '〈閔己賦〉「閔己」的主要情感是？', options: ['好奇自然', '憂慮才德未施', '自滿祖功', '追求名利'], correct: 1, explain: '作者自憂自省，感嘆才德難以施展。' },
-    { q: '〈別知賦〉作者對朋友的態度與感受？', options: ['隨緣交友', '珍視友誼感慨別離', '權勢利益不可信', '友情不如仕途重要'], correct: 1, explain: '重友情、惜別離，感人生無常。' },
-    { q: '〈元和聖德詩〉主要意圖？', options: ['描寫邊塞殘酷', '讚頌皇帝聖德與治績', '記錄臣下升遷', '諷刺藩鎮叛亂'], correct: 1, explain: '全篇在頌揚皇帝聖德與施政功績。' },
-    { q: '〈南山詩〉作者藉四季景象主要意圖？', options: ['地理位置與高度', '自然壯麗與變化', '被貶心情遭遇', '科學觀察資料'], correct: 1, explain: '四季描寫突出南山的壯麗與變化。' },
-    { q: '〈謝自然詩〉寒女謝自然的特點？', options: ['受父母寵愛', '追求神仙之術能感應', '善於農耕紡織', '長壽無災'], correct: 1, explain: '她追求修道，能感應天地幽冥。' },
-    { q: '〈赴江陵途中…〉主要情感？', options: ['讚美風景', '同情貧民與欣慰官府', '政治失意羈旅悲憤無奈', '友情與同僚讚賞'], correct: 2, explain: '重點是政治失意與漂泊的悲憤無奈。' },
-    { q: '〈暮行河堤上〉最正確理解？', options: ['人聲鼎沸熱鬧歡欣', '獨行河堤夜歸愁思無奈', '春日景色心情愉快', '與友人夜遊成功喜悅'], correct: 1, explain: '孤寂夜歸，愁思與無奈為核心意境。' },
-    { q: '〈夜歌〉主旨最正確？', options: ['恐懼與孤單', '夜晚自省心境自得', '憂慮世事力不從心', '僅描寫夜景不涉內心'], correct: 1, explain: '夜間自省，心境自得、無怨無悔。' },
-    { q: '〈原道〉內容理解最正確？', options: ['道德與仁義無關', '先王以仁義治世秩序安定', '不必學仁義道德', '貧窮與盜賊因缺制度'], correct: 1, explain: '仁義為治世根本，使社會秩序安定。' },
-    { q: '〈原性〉對「性」與「情」的看法？', options: ['性後天習得情與生俱來', '性情皆有三品可教可制', '性完全不可改變', '上等性必不犯錯'], correct: 1, explain: '性與情皆有上中下之分，可教可制。' },
-    { q: '〈原毀〉古今君子比較最正確？', options: ['古君子責人詳待己廉', '古君子責己重以周待人輕以約', '古君子不修己今君子自重', '古重名譽今重道德'], correct: 1, explain: '古君子嚴於責己、寬於待人；今反之。' },
-    { q: '〈原人〉「人道亂，而夷狄禽獸不得其情」意指？', options: ['人行為失序天地混亂', '人失正道則夷狄禽獸受影響', '自然規律不變', '聖人只治天道地道'], correct: 1, explain: '人道失序將牽動萬物秩序的失衡。' },
-    { q: '〈原鬼〉主要意思？', options: ['鬼神隨時顯現主宰萬物', '鬼神全為虛構', '人違天理民倫自然而感應有鬼', '鬼神有聲有形隨意施禍福'], correct: 2, explain: '人事違道而感應，鬼神活動隨之起應。' },
-    { q: '〈行難〉與陸先生對話指出的觀念？', options: ['階級固定不應仕途', '只重名望不重才能', '聖賢成功因家世', '不以出身限制成就'], correct: 3, explain: '真正賢才可能出自任何階層，不拘出身。' },
-    { q: '〈對禹問〉禹選擇傳子非傳賢的理由？', options: ['前定繼承可止爭亂', '子孫皆聖人', '民心期望世襲', '舜強求傳子'], correct: 0, explain: '前定繼承可止爭奪，至少能守法安定。' },
-    { q: '〈讀荀〉末評「孟氏醇乎醇，荀與揚大醇而小疵」意指？', options: ['三家影響不如百家', '思想由淺入深荀最圓滿', '孟子最純正荀揚稍有瑕疵', '荀揚最接近春秋筆法'], correct: 2, explain: '孟子最純正；荀、揚大體合道而略有瑕疵。' },
-    { q: '〈讀鶡冠子〉整體評價最貼切？', options: ['多誤價值有限', '只重文字不論思想', '推崇為最純正道家', '肯定部分篇章足以治天下並校正文字'], correct: 3, explain: '肯定其要義，認為足以治天下，並親校文字。' },
-    { q: '〈讀儀禮〉作者主要態度？', options: ['過時難懂不必研究', '制度已失毫無價值', '雖難讀仍保存周制極為珍貴', '應全由後代改制'], correct: 2, explain: '雖難讀不行於今，但保存周制，價值極高。' },
-    { q: '〈讀墨子〉儒、墨之異的根本原因？', options: ['儒墨理念完全相反', '代表不同利益必然對立', '互不瞭解經典致曲解', '後學成見各售師說非本意對立'], correct: 3, explain: '儒墨之爭多出於後學成見，非孔墨本意。' },
-    { q: '〈獲麟解〉「以德不以形」意旨？', options: ['形體特殊無法判吉凶', '外形多端易混淆', '德義判準：應聖人而出', '聖人看不出外貌故存疑'], correct: 2, explain: '麟之為麟在德義：因聖人在位而出。' },
-    { q: '〈師說〉弟子不必不如師的理由？', options: ['弟子更通世務', '制度重年齡地位對等', '聖人皆受業於眾人', '聞道有先後術業有專攻'], correct: 3, explain: '聞道有先後、術業有專攻，不以年齡地位判。' },
-    { q: '〈進學解〉提孟子荀子遭遇用意？', options: ['性格剛強難仕進', '戰亂不採用儒學', '有才德者未必遇知時', '不勤學修德更不得認可'], correct: 2, explain: '至賢亦可能不遇於世，遭貶非因無能。' },
-    { q: '〈本政〉後世政治混亂原因？', options: ['人民不遵古制', '君主過度依賴武力', '一時之法被當永恆之道', '忽略商周外史事'], correct: 2, explain: '以權宜一時之術誤作永恆之道，迷惑民心。' },
-    { q: '依〈守戒〉內容，作者認為國家面對外患時最根本的防備之道是什麼？', options: ['加強城牆與陷阱等物理防禦', '擴大領土以拉開與敵國的距離', '增強財力以儲備更多兵器', '得人——任用合適之人才'], correct: 3, explain: '末段指出「在得人」，真正防備在於用人得當，而非僅靠物理手段或地形。' },
-    { q: '從〈圬者王承福傳〉來看，王承福選擇以「圬者」為終身職業的主要原因是什麼？', options: ['該行業能快速致富，利潤遠高於農業', '認為勞力之事雖辛苦但可力而有功，取其直而無愧，心安', '他身體羸弱，只能做輕鬆的工作', '想藉此行業結識貴族以求仕進'], correct: 1, explain: '「夫镘易能，可力焉，又誠有功，取其直，雖勞無愧，吾心安焉」；以勞力換取正當報酬，雖辛苦而無愧於心。' },
-    { q: '〈諱辯〉中韓愈主張李賀舉進士並無違犯避諱，其主要論證方式為何？', options: ['指出李賀父名與「進士」二字在字形上完全不同', '以經典、律例與歷代不諱的事例證明避諱並非如此拘泥', '強調李賀文名卓絕，不應以小節拘人', '以皇甫湜的意見作為最終權威'], correct: 1, explain: '引《律》《經》《春秋》及周公、孔子、漢代例，證明「二名不偏諱」「不諱嫌名」，反證偏執避諱之非。' },
-    { q: '在〈訟風伯〉一文中，作者之所以「上訟」風伯，其核心理由為何？', options: ['風伯不遵天命，擅自掀起暴雨淹沒農作', '風伯吹散雲氣、阻止雨水成形，使旱災加劇', '風伯奪走暘烏之光，使人間失去陽氣', '風伯未接受祭祀，因此憤怒報復人間'], correct: 1, explain: '風伯「吹使離之」，使「氣不得化」「雲不得施」，雨將成而不成，導致大旱。' },
-    { q: '〈伯夷頌〉中作者認為伯夷、叔齊之行為最能體現其「特立獨行」的原因是什麼？', options: ['他們拒絕追隨微子一起逃離殷朝', '他們反對武王、周公討伐殷紂，並在殷亡後恥食周粟而餓死', '他們曾勸諫天下諸侯不要攻殷', '他們在周朝被封為賢士卻主動隱退山林'], correct: 1, explain: '反對伐紂，天下歸周後恥食其粟，餓死不顧，堅守義理、特立獨行。' },
-  ];
-  const qs = sampleQuestions(dreamQuestions, 1)[0];
+  const qs = sampleQuestions(dreamQuestionBank, 1)[0];
   const prompt = document.createElement('p');
   prompt.className = 'dialog-text';
   prompt.textContent = qs.q;
@@ -1493,8 +1648,37 @@ function startDreamLevel() {
     btn.addEventListener('click', () => {
       const ok = i === qs.correct;
       if (ok) {
-        matchScore += 10;
-        showBlockModal('提示', [{ text: '夢中頓悟，獲得分數！' }], () => { sec.remove(); goToNextLevel(); });
+        const msg = document.createElement('p');
+        msg.className = 'dialog-text';
+        msg.textContent = '選擇獎勵：';
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const healBtn = document.createElement('button');
+        healBtn.className = 'button';
+        healBtn.type = 'button';
+        healBtn.textContent = '回血';
+        const scoreBtn = document.createElement('button');
+        scoreBtn.className = 'button';
+        scoreBtn.type = 'button';
+        scoreBtn.textContent = '+5分';
+        const finalize = (fn) => { healBtn.disabled = true; scoreBtn.disabled = true; fn(); };
+        healBtn.addEventListener('click', () => {
+          finalize(() => {
+            errorCount = Math.max(0, errorCount - 1);
+            updateHpBar();
+            showBlockModal('提示', [{ text: '已回血' }], () => { sec.remove(); goToNextLevel(); });
+          });
+        });
+        scoreBtn.addEventListener('click', () => {
+          finalize(() => {
+            bumpScore(5);
+            showBlockModal('提示', [{ text: '獲得 +5 分' }], () => { sec.remove(); goToNextLevel(); });
+          });
+        });
+        actions.appendChild(healBtn);
+        actions.appendChild(scoreBtn);
+        sec.appendChild(msg);
+        sec.appendChild(actions);
       } else {
         const ex = qs.explain || '解析：請再思考本文主旨與關鍵語句。';
         showBlockModal('解析', [{ text: ex }, { text: '單純夢醒，進入下一關。' }], () => { sec.remove(); goToNextLevel(); });
@@ -1579,7 +1763,7 @@ function startReviewLevel() {
     const actual = Array.from(list.children).map(el => el.firstChild.nodeValue.trim());
     const ok = actual.length === expected.length && actual.every((x, i) => x === expected[i]);
     if (ok) {
-      matchScore += 10;
+      bumpScore(30);
       const elapsedSec = startTime ? Math.floor((Date.now() - startTime) / 1000) : Number.MAX_SAFE_INTEGER;
       const fastRoute = elapsedSec <= 600;
       if (fastRoute) {
@@ -1588,13 +1772,15 @@ function startReviewLevel() {
         showBlockModal('通關', [{ text: '你完整回顧了旅程，秩序井然。' }], () => { sec.style.display = 'none'; finalizeGame(); });
       }
     } else {
-      matchScore = 0;
+      const prev = matchScore;
+      if (prev > 0) bumpScore(-prev);
       const elapsedSec = startTime ? Math.floor((Date.now() - startTime) / 1000) : Number.MAX_SAFE_INTEGER;
       const fastRoute = elapsedSec <= 600;
+      orderFailed = true;
       if (fastRoute) {
-        showBlockModal('白活了', [{ text: '順序錯誤，所有分數歸零。但你在十分鐘內抵達，進入迴光返照關。' }], () => { sec.style.display = 'none'; startRevivalLevel(); });
+        showBlockModal('白活了', [{ text: `順序錯誤，所有分數歸零（-${prev} 分）。但你在十分鐘內抵達，進入迴光返照關。` }], () => { sec.style.display = 'none'; startRevivalLevel(); });
       } else {
-        showBlockModal('白活了', [{ text: '順序錯誤，所有分數歸零。' }], () => { sec.style.display = 'none'; finalizeGame(); });
+        showBlockModal('白活了', [{ text: `順序錯誤，所有分數歸零（-${prev} 分）。` }], () => { sec.style.display = 'none'; finalizeGame(); });
       }
     }
   });
@@ -1620,6 +1806,7 @@ function startReviewLevel() {
   sec.appendChild(list);
   sec.appendChild(actions);
 }
+
 
 function startRevivalLevel() {
   applyLevelStyle('Dream');
@@ -1652,19 +1839,7 @@ function startRevivalLevel() {
   qText.className = 'dialog-text';
   const options = document.createElement('div');
   options.className = 'options';
-  const bank = [
-    { q: '〈感二鳥賦〉中的「二鳥」主要象徵什麼？', options: ['自然界的奇異現象', '自身仕途與才德不遇', '官員競爭與爭名逐利', '對古人的景仰與學習'], correct: 1 },
-    { q: '〈復志賦〉中仕途不順、抱負未酬的主要原因？', options: ['才德不足', '時運未到難以施展', '家境貧寒', '沉於自然遊歷'], correct: 1 },
-    { q: '〈閔己賦〉「閔己」的主要情感是？', options: ['好奇自然', '憂慮才德未施', '自滿祖功', '追求名利'], correct: 1 },
-    { q: '〈別知賦〉作者對朋友的態度與感受？', options: ['隨緣交友', '珍視友誼感慨別離', '權勢利益不可信', '友情不如仕途重要'], correct: 1 },
-    { q: '〈元和聖德詩〉主要意圖？', options: ['描寫邊塞殘酷', '讚頌皇帝聖德與治績', '記錄臣下升遷', '諷刺藩鎮叛亂'], correct: 1 },
-    { q: '〈南山詩〉作者藉四季景象主要意圖？', options: ['地理位置與高度', '自然壯麗與變化', '被貶心情遭遇', '科學觀察資料'], correct: 1 },
-    { q: '〈謝自然詩〉寒女謝自然的特點？', options: ['受父母寵愛', '追求神仙之術能感應', '善於農耕紡織', '長壽無災'], correct: 1 },
-    { q: '〈暮行河堤上〉最正確理解？', options: ['人聲鼎沸熱鬧歡欣', '獨行河堤夜歸愁思無奈', '春日景色心情愉快', '與友人夜遊成功喜悅'], correct: 1 },
-    { q: '〈夜歌〉主旨最正確？', options: ['恐懼與孤單', '夜晚自省心境自得', '憂慮世事力不從心', '僅描寫夜景不涉內心'], correct: 1 },
-    { q: '〈原道〉內容理解最正確？', options: ['道德與仁義無關', '先王以仁義治世秩序安定', '不必學仁義道德', '貧窮與盜賊因缺制度'], correct: 1 },
-    { q: '〈師說〉弟子不必不如師的理由？', options: ['弟子更通世務', '制度重年齡地位對等', '聖人皆受業於眾人', '聞道有先後術業有專攻'], correct: 3 }
-  ];
+  const bank = dreamQuestionBank;
   let queue = bank.slice();
   for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = queue[i]; queue[i] = queue[j]; queue[j] = t; }
   function renderOne() {
@@ -1677,7 +1852,7 @@ function startRevivalLevel() {
       btn.className = 'button option';
       btn.type = 'button';
       btn.textContent = opt;
-      btn.addEventListener('click', () => { if (i === item.correct) matchScore += 10; renderOne(); });
+      btn.addEventListener('click', () => { if (i === item.correct) bumpScore(5); renderOne(); });
       options.appendChild(btn);
     });
   }
@@ -1749,6 +1924,7 @@ function startLevel10() {
   const ctx = canvas.getContext('2d'); 
   
   let frames = 0, score = 0, isRunning = false; 
+  let levelStartMs = 0; const FALL_DELAY_MS = 1200;
   const targetScore = 10; 
   const PIPE_SPAWN_INTERVAL = 150, FIRST_PIPE_DELAY = 120;   
 
@@ -1759,10 +1935,16 @@ function startLevel10() {
           ctx.fillRect(this.x, this.y, this.width, this.height); 
       }, 
       update: function() { 
-          this.velocity += this.gravity; 
+          const elapsed = performance.now() - levelStartMs; 
+          if (elapsed >= FALL_DELAY_MS) this.velocity += this.gravity; 
           this.y += this.velocity; 
-          if(this.y + this.height > canvas.height || this.y < 0) { 
+          if (elapsed >= FALL_DELAY_MS) { 
+            if (this.y + this.height > canvas.height || this.y < 0) { 
               levelFailed(); 
+            } 
+          } else { 
+            if (this.y < 0) { this.y = 0; this.velocity = 0; } 
+            if (this.y + this.height > canvas.height) { this.y = canvas.height - this.height; this.velocity = 0; } 
           } 
       } 
   }; 
@@ -1843,6 +2025,7 @@ function startLevel10() {
   function levelRetry() {
     if (isRunning) return;
     resetGameVars();
+    levelStartMs = performance.now();
     isRunning = true;
     loop();
   }
@@ -1851,7 +2034,7 @@ function startLevel10() {
     isRunning = false;
     cancelAnimationFrame(animationFrameId);
     document.getElementById('win-screen').classList.remove('hidden');
-    document.getElementById('win-btn').onclick = goToNextLevel;
+    document.getElementById('win-btn').onclick = () => { bumpScore(20); goToNextLevel(); };
   }
   
   function startGame() {
@@ -1876,9 +2059,19 @@ function startLevel10() {
     }
   });
 
-  window.level10Reset = levelRetry;
+window.level10Reset = levelRetry;
 }
-function renderLeaderboardPage(filterRoute, headingText) {
+function computeRank(score, failedOrder) {
+  const s = Number(score || 0);
+  if (s > 300) return { level: 'SS', title: '泰山北斗', description: '【傳說級成就】文起八代之衰，道濟天下之溺。蘇軾讚你：「如長江大河，渾浩流轉...泰山北斗」。你的光芒已超越時代，成為千古傳頌的神話！' };
+  if (s >= 240 && s <= 300) return { level: 'S', title: '百代文宗', description: '「匹夫而為百世師，一言而為天下法。你的靈魂與韓昌黎完全共振，文能載道，武能平亂，你是大唐夜空中最亮的那顆星！」' };
+  if (s >= 200 && s <= 239) return { level: 'A', title: '唐宋八大家之首', description: '「文筆雄健，氣勢磅礡。雖偶有波折，但你堅持古文運動，力抗流俗。你的名字將與柳宗元並列，永載史冊。」' };
+  if (s >= 160 && s <= 199) return { level: 'B', title: '刑部侍郎', description: '「你性格剛直，不畏強權。雖然在文學上的細膩度稍遜一籌，但你的一身傲骨與經世濟民的熱忱，足以立足朝堂。」' };
+  if (s >= 100 && s <= 159) return { level: 'C', title: '國子先生', description: '「業精於勤荒於嬉。你對韓學有所涉獵，但尚未融會貫通。或許是被長安的花迷了眼，亦或是被貶謫的寒風凍傷了筆觸？」' };
+  if (s >= 1 && s <= 99) return { level: 'D', title: '時運不濟', description: '「二鳥賦中歎不遇，你的才華似乎還需要時間打磨。或者，你其實更適合去隔壁棚找李白喝酒？」' };
+  return failedOrder ? { level: 'E', title: '非我族類', description: '「你的人生順序錯亂，記憶拼湊不出完整的韓愈。歷史的長河中，查無此人。」' } : { level: 'E', title: '非我族類', description: '「你的人生順序錯亂，記憶拼湊不出完整的韓愈。歷史的長河中，查無此人。」' };
+}
+function renderLeaderboardPage(filterRoute, headingText, skipRemote) {
   clearMainContent(true);
   hideCharacterDisplay();
   hideHpBar();
@@ -1886,126 +2079,36 @@ function renderLeaderboardPage(filterRoute, headingText) {
   document.documentElement.style.setProperty('--fg', '#cfcfcf');
   document.documentElement.style.setProperty('--muted', '#9aa0a6');
   const key = 'hanliu_scores';
-  const raw = localStorage.getItem(key);
-  let arr = [];
-  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
-  let list = arr;
-  if (filterRoute && filterRoute !== 'All') list = arr.filter(x => x.route === filterRoute);
-  list.sort((a, b) => b.score - a.score);
-  list = list.slice(0, 30);
-  const main = document.querySelector('main.container');
-  const page = document.createElement('section');
-  page.className = 'dialog-container';
-  page.id = 'leaderboardPage';
-  const title = document.createElement('h2');
-  title.className = 'modal-title';
-  title.textContent = '排行榜';
-  const info = document.createElement('p');
-  info.className = 'dialog-text';
-  info.textContent = headingText || '';
-  const content = document.createElement('div');
-  content.className = 'leaderboard-content';
-  if (list.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'dialog-text';
-    empty.textContent = '尚無成績記錄';
-    content.appendChild(empty);
-  } else {
-    list.forEach((r, i) => {
-      const row = document.createElement('div');
-      row.className = 'row';
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = `${i + 1}. ${r.name}`;
-      const score = document.createElement('span');
-      score.className = 'score';
-      score.textContent = `${r.score}`;
-      const route = document.createElement('span');
-      route.className = 'route';
-      route.textContent = r.route === 'HanYu' ? '韓愈線' : (r.route === 'LiuZongyuan' ? '柳宗元線' : r.route);
-      row.appendChild(name);
-      row.appendChild(score);
-      row.appendChild(route);
-      content.appendChild(row);
+  const renderLocal = () => {
+    const raw = localStorage.getItem(key);
+    let arr = [];
+    try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+    let list = arr;
+    if (filterRoute && filterRoute !== 'All') list = arr.filter(x => x.route === filterRoute);
+    list.sort((a, b) => b.score - a.score);
+    const main = document.querySelector('main.container');
+    if (main) { main.style.alignItems = 'flex-start'; main.style.justifyItems = 'center'; main.scrollTop = 0; }
+    const page = document.createElement('section');
+    page.className = 'dialog-container';
+    page.id = 'leaderboardPage';
+    
+    const info = document.createElement('p');
+    info.className = 'dialog-text';
+    info.textContent = headingText || '';
+    const curRank = computeRank(matchScore, orderFailed);
+    const curIndex = list.findIndex(r => String(r && r.id || '') === String(lastRunId || ''));
+    const rankInfo = document.createElement('p');
+    rankInfo.className = 'dialog-text';
+    rankInfo.textContent = curIndex >= 0 ? `本次名次：第${curIndex + 1} 名` : '';
+    if (curRank.level === 'E') {
+      document.documentElement.style.setProperty('--bg', '#000000');
+    }
+    const content = document.createElement('div');
+    content.className = 'leaderboard-content';
+    const hasSS = list.some(r => {
+      const rr = computeRank(Number(r.score || 0), false);
+      return rr && rr.level === 'SS';
     });
-  }
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  const backBtn = document.createElement('button');
-  backBtn.className = 'button';
-  backBtn.type = 'button';
-  backBtn.textContent = '返回主頁';
-  backBtn.addEventListener('click', navigateHome);
-  const retryBtn = document.createElement('button');
-  retryBtn.className = 'button';
-  retryBtn.type = 'button';
-  retryBtn.textContent = '重來一次';
-  retryBtn.addEventListener('click', retryGame);
-  actions.appendChild(backBtn);
-  actions.appendChild(retryBtn);
-  page.appendChild(title);
-  if (headingText) page.appendChild(info);
-  page.appendChild(content);
-  page.appendChild(actions);
-  backdrop.hidden = true;
-  main.appendChild(page);
-}
-
-function clearMainContent(preserveStartScreen) {
-  const main = document.querySelector('main.container');
-  if (!main) return;
-  const start = document.getElementById('startScreen');
-  Array.from(main.children).forEach(ch => {
-    if (preserveStartScreen && start && ch === start) return;
-    main.removeChild(ch);
-  });
-}
-
-function navigateHome() {
-  const main = document.querySelector('main.container');
-  const start = document.getElementById('startScreen');
-  Array.from(main.children).forEach(ch => { if (!start || ch !== start) ch.remove(); });
-  if (start) { start.style.display = ''; }
-  document.documentElement.style.setProperty('--bg', '#1a1a1a');
-  document.documentElement.style.setProperty('--fg', '#cfcfcf');
-  document.documentElement.style.setProperty('--muted', '#9aa0a6');
-  hideHpBar();
-  isGameOver = false;
-  systemCleanup(false);
-}
-
-function retryGame() {
-  matchScore = 0;
-  errorCount = 0;
-  currentRoute = null;
-  resetHpBar();
-  navigateHome();
-  input.focus();
-}
-let leaderboardFilter = 'All';
-function saveScore(name, score, route) {
-  const key = 'hanliu_scores';
-  const raw = localStorage.getItem(key);
-  let arr = [];
-  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
-  const now = Date.now();
-  const totalSeconds = startTime ? Math.max(0, Math.floor((now - startTime) / 1000)) : 0;
-  arr.push({ name, score, route, time: totalSeconds, progress: currentProgress });
-  localStorage.setItem(key, JSON.stringify(arr));
-}
-
-function displayLeaderboard(filterRoute) {
-  const key = 'hanliu_scores';
-  const raw = localStorage.getItem(key);
-  let arr = [];
-  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
-  let list = arr;
-  if (filterRoute && filterRoute !== 'All') list = arr.filter(x => x.route === filterRoute);
-  list.sort((a, b) => b.score - a.score);
-  list = list.slice(0, 30);
-  const content = document.getElementById('leaderboardContent');
-  if (content) {
-    content.innerHTML = '';
     if (list.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'dialog-text';
@@ -2030,11 +2133,262 @@ function displayLeaderboard(filterRoute) {
         const route = document.createElement('span');
         route.className = 'route';
         route.textContent = r.route === 'HanYu' ? '韓愈線' : (r.route === 'LiuZongyuan' ? '柳宗元線' : r.route);
+        const rRank = computeRank(Number(r.score || 0), false);
+        if (rRank && rRank.level === 'SS') {
+          row.classList.add('rank-ss');
+          row.style.background = 'linear-gradient(90deg, #ffd54f, #ffb74d)';
+          row.style.borderBottom = 'none';
+          row.style.animation = 'ssPulse 4.8s ease-in-out infinite';
+        }
+        if (String(r && r.id || '') === String(lastRunId || '')) {
+          row.style.outline = '3px solid #64b5f6';
+          row.style.boxShadow = '0 0 0 3px rgba(100,181,246,0.35)';
+          const curBadge = document.createElement('span');
+          curBadge.className = 'route';
+          curBadge.textContent = '【本次】';
+          row.appendChild(curBadge);
+        }
+        const badge = document.createElement('span');
+        badge.className = 'route';
+        badge.textContent = rRank ? `【${rRank.title}】` : '';
         row.appendChild(name);
         row.appendChild(score);
         row.appendChild(time);
         row.appendChild(progress);
         row.appendChild(route);
+        if (badge.textContent) row.appendChild(badge);
+        content.appendChild(row);
+      });
+    }
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const backBtn = document.createElement('button');
+    backBtn.className = 'button';
+    backBtn.type = 'button';
+    backBtn.textContent = '返回主頁';
+    backBtn.addEventListener('click', navigateHome);
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'button';
+    retryBtn.type = 'button';
+    retryBtn.textContent = '重來一次';
+    retryBtn.addEventListener('click', retryGame);
+    actions.appendChild(backBtn);
+    actions.appendChild(retryBtn);
+    if (headingText) page.appendChild(info);
+    if (rankInfo.textContent) page.appendChild(rankInfo);
+    page.appendChild(content);
+    page.appendChild(actions);
+    backdrop.hidden = true;
+    main.appendChild(page);
+    page.scrollTop = 0;
+  };
+  if (!skipRemote && !cloudSyncDisabled && getCloudEndpoint()) {
+    try {
+      fetch(getCloudEndpoint(), { headers: { ...(getCloudAuth() ? { authorization: getCloudAuth() } : {}) } })
+        .then(r => r.json())
+        .then((remote) => {
+          if (Array.isArray(remote)) {
+            const raw = localStorage.getItem(key);
+            let arr = [];
+            try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+            const merged = dedupeRecords(arr.concat(remote));
+            localStorage.setItem(key, JSON.stringify(merged));
+          }
+          renderLocal();
+        })
+        .catch(() => { renderLocal(); });
+    } catch { renderLocal(); }
+    return;
+  }
+  renderLocal();
+}
+
+function clearMainContent(preserveStartScreen) {
+  const main = document.querySelector('main.container');
+  if (!main) return;
+  const start = document.getElementById('startScreen');
+  Array.from(main.children).forEach(ch => {
+    if (preserveStartScreen && start && ch === start) return;
+    main.removeChild(ch);
+  });
+}
+
+function navigateHome() {
+  const main = document.querySelector('main.container');
+  const start = document.getElementById('startScreen');
+  Array.from(main.children).forEach(ch => { if (!start || ch !== start) ch.remove(); });
+  if (start) { start.style.display = ''; }
+  document.documentElement.style.setProperty('--bg', '#1a1a1a');
+  document.documentElement.style.setProperty('--fg', '#cfcfcf');
+  document.documentElement.style.setProperty('--muted', '#9aa0a6');
+  document.documentElement.style.setProperty('--bg-image', "url('home.png')");
+  document.documentElement.style.setProperty('--bg-overlay', 'linear-gradient(rgba(0,0,0,0.38), rgba(0,0,0,0.38))');
+  if (main) { main.style.alignItems = ''; main.style.justifyItems = ''; }
+  hideHpBar();
+  isGameOver = false;
+  systemCleanup(false);
+}
+
+function openNotice() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal hc3';
+  const close = document.createElement('button');
+  close.className = 'modal-close';
+  close.type = 'button';
+  close.textContent = '×';
+  close.addEventListener('click', () => { document.body.removeChild(overlay); });
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = '公告';
+  const ver = document.createElement('p');
+  ver.className = 'dialog-text';
+  ver.textContent = `版本：${appVersion}`;
+  modal.appendChild(close);
+  modal.appendChild(title);
+  modal.appendChild(ver);
+  releaseNotes.forEach(n => {
+    const p = document.createElement('p');
+    p.className = 'dialog-text';
+    p.textContent = `• ${n}`;
+    modal.appendChild(p);
+  });
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
+function retryGame() {
+  matchScore = 0;
+  errorCount = 0;
+  currentRoute = null;
+  resetHpBar();
+  navigateHome();
+  input.focus();
+}
+let leaderboardFilter = 'All';
+function genRecordId() {
+  try { if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID(); } catch {}
+  const rnd = Math.random().toString(36).slice(2);
+  const t = Date.now();
+  return `hl-${t}-${rnd}`;
+}
+function dedupeRecords(list) {
+  const byId = new Map();
+  const rest = [];
+  list.forEach((r) => {
+    const id = String(r && r.id || '').trim();
+    if (id) {
+      const cur = byId.get(id);
+      if (!cur || Number(r.ts || 0) > Number(cur.ts || 0)) byId.set(id, r);
+    } else {
+      rest.push(r);
+    }
+  });
+  const byBase = new Map();
+  const norm = (v) => String(v == null ? '' : v).trim();
+  rest.forEach((r) => {
+    const base = `${norm(r && r.name)}|${norm(r && r.route)}|${Number(r && r.score || 0)}|${Number(r && r.time || 0)}`;
+    const cur = byBase.get(base);
+    if (!cur || Number(r.ts || 0) > Number(cur.ts || 0)) byBase.set(base, r);
+  });
+  const out = [];
+  byId.forEach((v) => { out.push(v); });
+  byBase.forEach((v) => { out.push(v); });
+  return out;
+}
+function saveScore(name, score, route) {
+  const key = 'hanliu_scores';
+  const raw = localStorage.getItem(key);
+  let arr = [];
+  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+  const now = Date.now();
+  const totalSeconds = startTime ? Math.max(0, Math.floor((now - startTime) / 1000)) : 0;
+  const rec = { id: genRecordId(), name, score, route, time: totalSeconds, progress: currentProgress, ts: now };
+  lastRunId = rec.id;
+  arr.push(rec);
+  localStorage.setItem(key, JSON.stringify(dedupeRecords(arr)));
+  if (!cloudSyncDisabled && getCloudEndpoint()) {
+    try {
+      fetch(getCloudEndpoint(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(getCloudAuth() ? { authorization: getCloudAuth() } : {}) },
+        body: JSON.stringify(rec),
+      }).catch(() => {});
+    } catch {}
+  }
+}
+
+function displayLeaderboard(filterRoute, skipRemote) {
+  if (!skipRemote && getCloudEndpoint()) {
+    try {
+      fetch(getCloudEndpoint(), { headers: { ...(getCloudAuth() ? { authorization: getCloudAuth() } : {}) } })
+        .then(r => r.json())
+        .then((remote) => {
+          if (Array.isArray(remote)) {
+            const key = 'hanliu_scores';
+            const raw = localStorage.getItem(key);
+            let arr = [];
+            try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+            const merged = dedupeRecords(arr.concat(remote));
+            localStorage.setItem(key, JSON.stringify(merged));
+          }
+          displayLeaderboard(filterRoute, true);
+        })
+        .catch(() => {});
+    } catch {}
+    return;
+  }
+  const key = 'hanliu_scores';
+  const raw = localStorage.getItem(key);
+  let arr = [];
+  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+  let list = arr;
+  if (filterRoute && filterRoute !== 'All') list = arr.filter(x => x.route === filterRoute);
+  list.sort((a, b) => b.score - a.score);
+  list = list.slice(0, 100);
+  const content = document.getElementById('leaderboardContent');
+  if (content) {
+    content.innerHTML = '';
+    const hasSS = list.some(r => {
+      const rr = computeRank(Number(r.score || 0), false);
+      return rr && rr.level === 'SS';
+    });
+    if (list.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'dialog-text';
+      empty.textContent = '尚無成績記錄';
+      content.appendChild(empty);
+    } else {
+      list.forEach((r, i) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = `${i + 1}. ${r.name}`;
+        const score = document.createElement('span');
+        score.className = 'score';
+        score.textContent = `${r.score}`;
+        const time = document.createElement('span');
+        time.className = 'route';
+        time.textContent = formatTime(r.time || 0);
+        const progress = document.createElement('span');
+        progress.className = 'route';
+        progress.textContent = r.progress || '';
+        const route = document.createElement('span');
+        route.className = 'route';
+        route.textContent = r.route === 'HanYu' ? '韓愈線' : (r.route === 'LiuZongyuan' ? '柳宗元線' : r.route);
+        const rRank = computeRank(Number(r.score || 0), false);
+        if (rRank && rRank.level === 'SS') row.classList.add('rank-ss');
+        const badge = document.createElement('span');
+        badge.className = 'route';
+        badge.textContent = rRank ? `【${rRank.title}】` : '';
+        row.appendChild(name);
+        row.appendChild(score);
+        row.appendChild(time);
+        row.appendChild(progress);
+        row.appendChild(route);
+        if (badge.textContent) row.appendChild(badge);
         content.appendChild(row);
       });
     }
@@ -2050,8 +2404,77 @@ function formatTime(totalSeconds) {
 }
 
 function clearLeaderboard() {
-  localStorage.removeItem('hanliu_scores');
-  displayLeaderboard(leaderboardFilter);
+  requirePassword(() => {
+    localStorage.removeItem('hanliu_scores');
+    displayLeaderboard(leaderboardFilter, true);
+  });
+}
+async function wipeCloudScores() {
+  if (cloudSyncDisabled) return;
+  const ep = getCloudEndpoint();
+  const auth = getCloudAuth();
+  if (!ep) return;
+  const headers = { ...(auth ? { authorization: auth } : {}) };
+  const jsonHeaders = { 'content-type': 'application/json', ...(auth ? { authorization: auth } : {}) };
+  let list = null;
+  try {
+    const r = await fetch(ep, { headers });
+    const txt = await r.text();
+    try { list = JSON.parse(txt); } catch { list = null; }
+  } catch {}
+  const bulkDelete = () => fetch(ep, { method: 'DELETE', headers, mode: 'cors', keepalive: true });
+  const bulkPost = () => fetch(ep, { method: 'POST', headers: jsonHeaders, mode: 'cors', keepalive: true, body: JSON.stringify({ action: 'clear_all' }) });
+  const bulkPut = () => fetch(ep, { method: 'PUT', headers: jsonHeaders, mode: 'cors', keepalive: true, body: '[]' });
+  try { await bulkDelete(); } catch {}
+  if (Array.isArray(list) && list.length) {
+    for (const it of list) {
+      const id = String(it && it.id || '').trim();
+      if (!id) continue;
+      try { await fetch(`${ep.replace(/\/$/, '')}/${encodeURIComponent(id)}`, { method: 'DELETE', headers, mode: 'cors', keepalive: true }); }
+      catch {
+        try { await fetch(ep, { method: 'POST', headers: jsonHeaders, mode: 'cors', keepalive: true, body: JSON.stringify({ action: 'delete', id }) }); } catch {}
+      }
+    }
+  }
+  try { await bulkPost(); } catch {}
+  try { await bulkPut(); } catch {}
+}
+function clearLeaderboardAll() {
+  requirePassword(() => {
+    const done = () => { try { localStorage.removeItem('hanliu_scores'); } catch {} displayLeaderboard(leaderboardFilter, true); };
+    if (cloudSyncDisabled) { done(); return; }
+    wipeCloudScores().then(() => { done(); }).catch(() => { done(); });
+  });
+}
+function exportLeaderboard() {
+  const raw = localStorage.getItem('hanliu_scores') || '[]';
+  const blob = new Blob([raw], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hanliu_leaderboard.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function importLeaderboard(ev) {
+  const file = ev && ev.target && ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const incoming = JSON.parse(String(reader.result || '[]'));
+      const key = 'hanliu_scores';
+      const raw = localStorage.getItem(key);
+      let arr = [];
+      try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
+      const merged = Array.isArray(incoming) ? dedupeRecords(arr.concat(incoming)) : arr;
+      localStorage.setItem(key, JSON.stringify(merged));
+      displayLeaderboard(leaderboardFilter);
+    } catch {}
+  };
+  reader.readAsText(file);
 }
 
 function saveName() {
@@ -2118,41 +2541,40 @@ function createDialogContainer(playerName) {
 }
 
 function openAbout() {
-  const main = document.querySelector('main.container');
-  const start = document.getElementById('startScreen');
-  if (start) start.style.display = 'none';
-  clearMainContent(true);
-  const page = document.createElement('section');
-  page.className = 'dialog-container';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal hc3';
+  const close = document.createElement('button');
+  close.className = 'modal-close';
+  close.type = 'button';
+  close.textContent = '×';
+  close.addEventListener('click', () => { document.body.removeChild(overlay); });
   const title = document.createElement('h2');
   title.className = 'modal-title';
   title.textContent = '關於遊戲';
   const gameName = document.createElement('p');
   gameName.className = 'dialog-text';
   gameName.textContent = '遊戲名稱：寒流';
-  const d1 = document.createElement('p'); d1.className = 'dialog-text'; d1.textContent = '總設計：楊竣傑';
-  const d2 = document.createElement('p'); d2.className = 'dialog-text'; d2.textContent = '程式開發：Trae.ai (AI 輔助實作)';
-  const d3 = document.createElement('p'); d3.className = 'dialog-text'; d3.textContent = '專案指導與架構分析：Gemini (AI 協作顧問)';
-  const d4 = document.createElement('p'); d4.className = 'dialog-text'; d4.textContent = '視覺素材：Gemini (AI 繪圖)';
-  const d5 = document.createElement('p'); d5.className = 'dialog-text'; d5.textContent = '數據來源：經典文獻與韓柳文集、上課簡報';
-  const d6 = document.createElement('p'); d6.className = 'dialog-text'; d6.textContent = '品質管制顧問 (QC)：鍾旻諺、李聖億';
-  const d7 = document.createElement('p'); d7.className = 'dialog-text'; d7.textContent = '版本：v1.0';
-  const back = document.createElement('button');
-  back.className = 'button';
-  back.type = 'button';
-  back.textContent = '返回首頁';
-  back.addEventListener('click', navigateHome);
-  page.appendChild(title);
-  page.appendChild(gameName);
-  page.appendChild(d1);
-  page.appendChild(d2);
-  page.appendChild(d3);
-  page.appendChild(d4);
-  page.appendChild(d5);
-  page.appendChild(d6);
-  page.appendChild(d7);
-  page.appendChild(back);
-  main.appendChild(page);
+  const d1 = document.createElement('p'); d1.className = 'dialog-text'; d1.textContent = '程式開發：Trae.ai (AI 輔助實作)';
+  const d2 = document.createElement('p'); d2.className = 'dialog-text'; d2.textContent = '專案指導與架構分析：Gemini (AI 協作顧問)';
+  const d3 = document.createElement('p'); d3.className = 'dialog-text'; d3.textContent = '視覺素材：Gemini (AI 繪圖)';
+  const d4 = document.createElement('p'); d4.className = 'dialog-text'; d4.textContent = '數據來源：經典文獻與韓柳文集、上課簡報';
+  const d5 = document.createElement('p'); d5.className = 'dialog-text'; d5.textContent = '品質管制顧問 (QC)：楊采樺';
+  const d6 = document.createElement('p'); d6.className = 'dialog-text'; d6.textContent = '專案政策顧問：鍾旻諺、李聖億';
+  const d7 = document.createElement('p'); d7.className = 'dialog-text'; d7.textContent = `版本：${appVersion}`;
+  modal.appendChild(close);
+  modal.appendChild(title);
+  modal.appendChild(gameName);
+  modal.appendChild(d1);
+  modal.appendChild(d2);
+  modal.appendChild(d3);
+  modal.appendChild(d4);
+  modal.appendChild(d5);
+  modal.appendChild(d6);
+  modal.appendChild(d7);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 function openRouteDialog(route) {
@@ -2263,14 +2685,31 @@ function renderSentenceQuestion() {
   const q = currentQuestions[currentQuestionIndex];
   const title = document.createElement('h2');
   title.className = 'modal-title';
-  title.textContent = '關卡：句讀明義';
+  title.textContent = '第一關：句讀明義';
   const prompt = document.createElement('p');
   prompt.className = 'dialog-text';
-  prompt.textContent = `題目：${q.question}`;
-  const inputBox = document.createElement('input');
-  inputBox.type = 'text';
-  inputBox.className = 'input';
-  inputBox.placeholder = '請在適當處輸入 / 進行斷句（例如：子曰/學而時習之/...）';
+  prompt.textContent = '操作指南：請點擊文字之間的空隙以插入斷句符號（/）。再次點擊可移除。';
+  const segBox = document.createElement('div');
+  segBox.className = 'seg-box';
+  const chars = Array.from(q.question);
+  for (let i = 0; i < chars.length; i++) {
+    const sc = document.createElement('span');
+    sc.className = 'seg-char';
+    sc.textContent = chars[i];
+    segBox.appendChild(sc);
+    if (i < chars.length - 1) {
+      const gap = document.createElement('button');
+      gap.className = 'seg-gap';
+      gap.type = 'button';
+      gap.dataset.index = String(i);
+      gap.textContent = '';
+      gap.addEventListener('click', () => {
+        gap.classList.toggle('active');
+        gap.textContent = gap.classList.contains('active') ? '/' : '';
+      });
+      segBox.appendChild(gap);
+    }
+  }
   const submitBtn = document.createElement('button');
   submitBtn.className = 'button';
   submitBtn.type = 'button';
@@ -2279,17 +2718,23 @@ function renderSentenceQuestion() {
   msg.className = 'dialog-text';
 
   submitBtn.addEventListener('click', () => {
-    const user = normalizeSegmentation(inputBox.value);
+    let built = '';
+    for (let i = 0; i < chars.length; i++) {
+      built += chars[i];
+      const gapEl = segBox.querySelector(`.seg-gap[data-index="${i}"]`);
+      if (gapEl && gapEl.classList.contains('active')) built += '/';
+    }
+    const user = normalizeSegmentation(built);
     const correct = normalizeSegmentation(q.correctSegmentation);
     if (user && user === correct) {
-      matchScore += 10;
       msg.className = 'dialog-text success-text';
-      msg.textContent = '答對！+10 分';
+      msg.textContent = '答對！';
       currentQuestionIndex += 1;
       if (currentQuestionIndex >= currentQuestions.length) {
         const pause = document.createElement('p');
         pause.className = 'dialog-text success-text';
-        pause.textContent = '句讀精準！第二關即將開始...';
+        bumpScore(10);
+        pause.textContent = '句讀精準！+10 分，第二關即將開始...';
         level.appendChild(pause);
         setTimeout(() => { level.style.display = 'none'; goToNextLevel(); }, 1500);
       } else {
@@ -2300,7 +2745,6 @@ function renderSentenceQuestion() {
       if (errorCount === 1) {
         msg.className = 'dialog-text error-text';
         msg.textContent = '身體與靈魂不匹配的警告。韓愈，你辜負了兄嫂的日夜期盼... 請再想想天上的父母，他們的期望，你還能承擔幾次失誤？';
-        inputBox.value = '';
         currentQuestionIndex = Math.min(currentQuestionIndex + 1, currentQuestions.length - 1);
         setTimeout(renderSentenceQuestion, 2000);
       }
@@ -2309,7 +2753,7 @@ function renderSentenceQuestion() {
 
   level.appendChild(title);
   level.appendChild(prompt);
-  level.appendChild(inputBox);
+  level.appendChild(segBox);
   level.appendChild(submitBtn);
   level.appendChild(msg);
 }
@@ -2337,6 +2781,28 @@ function startExamLevel() {
   currentExamAttempt = 1;
   examQuestions = sampleQuestions(quanxueSegments, 4);
   renderExamAttempt();
+}
+
+function getSceneImageUrl(key) {
+  try {
+    const mapRaw = localStorage.getItem('hanliu_scene_images') || '{}';
+    const map = JSON.parse(mapRaw);
+    if (map && typeof map[key] === 'string' && map[key].trim()) return map[key].trim();
+  } catch {}
+  if (key === 'luliang') return 'images/luliang.png';
+  return '';
+}
+function resolveSceneImage(img, key) {
+  const seen = new Set();
+  const candidates = [];
+  const fromLocal = getSceneImageUrl(key);
+  if (fromLocal) candidates.push(fromLocal);
+  candidates.push(`images/${key}.png`, `${key}.png`, `./${key}.png`);
+  const list = candidates.filter((x) => { const y = String(x || '').trim(); if (!y || seen.has(y)) return false; seen.add(y); return true; });
+  let i = 0;
+  const tryNext = () => { if (i >= list.length) return; img.src = list[i++]; };
+  img.addEventListener('error', () => { tryNext(); }, { once: true });
+  tryNext();
 }
 
 function renderExamAttempt() {
@@ -2413,7 +2879,6 @@ function renderExamAttempt() {
       handleError('Number');
       return;
     }
-    matchScore += 10;
     const after = () => {
       level.innerHTML = '';
       if (currentExamAttempt <= 3) {
@@ -2432,6 +2897,17 @@ function renderExamAttempt() {
             inter.className = 'dialog-text';
             inter.textContent = '文名遠播，轉機已現 🧑‍💼 📚 陸贄、梁肅';
             level.appendChild(inter);
+            const pic = document.createElement('img');
+            pic.alt = '陸贄、梁肅';
+            pic.loading = 'lazy';
+            resolveSceneImage(pic, 'luliang');
+            pic.style.width = 'min(420px, 80vw)';
+            pic.style.maxHeight = '60vh';
+            pic.style.objectFit = 'contain';
+            pic.style.border = '1px solid #2a2a2a';
+            pic.style.borderRadius = '10px';
+            pic.style.boxShadow = '0 10px 24px rgba(0,0,0,0.35)';
+            level.appendChild(pic);
             setTimeout(() => { currentExamAttempt = 4; renderExamAttempt(); }, 3000);
           } else {
             currentExamAttempt += 1;
@@ -2444,6 +2920,7 @@ function renderExamAttempt() {
         final.className = 'dialog-text success-text';
         final.textContent = '貞元八年（792年），你終於中進士了！';
         level.appendChild(final);
+        bumpScore(15);
         setTimeout(() => { level.style.display = 'none'; goToNextLevel(); }, 1800);
       }
     };
@@ -2456,6 +2933,17 @@ function getCjkIndices(text) {
   const re = /[\u4E00-\u9FFF]/;
   const out = [];
   for (let i = 0; i < text.length; i++) { if (re.test(text[i])) out.push(i); }
+  return out;
+}
+
+function extractClauses(text) {
+  const re = /([^，、；。！？]+)([，、；。！？])/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(String(text))) !== null) {
+    out.push({ text: String(m[1]).trim(), punct: String(m[2]) });
+  }
+  if (out.length === 0) return [{ text: String(text), punct: '' }];
   return out;
 }
 
@@ -2583,6 +3071,7 @@ function showBlockModal(titleText, bodyItems, onClose) {
   overlay.className = 'modal-backdrop active-block';
   const modal = document.createElement('div');
   modal.className = 'modal';
+  if (currentLevel === 3) modal.classList.add('hc3');
   const title = document.createElement('h2');
   title.className = 'modal-title';
   title.textContent = titleText || '提示';
@@ -2590,20 +3079,110 @@ function showBlockModal(titleText, bodyItems, onClose) {
   close.className = 'modal-close';
   close.type = 'button';
   close.textContent = '×';
-  close.addEventListener('click', () => { blockingModalOpen = false; document.body.removeChild(overlay); if (typeof onClose === 'function') onClose(); });
+  const doClose = () => {
+    blockingModalOpen = false;
+    document.body.removeChild(overlay);
+    if (typeof onClose === 'function') onClose();
+  };
+  close.addEventListener('click', doClose);
   modal.appendChild(close);
   modal.appendChild(title);
   if (Array.isArray(bodyItems)) {
     bodyItems.forEach(item => {
-      const p = document.createElement('p');
-      p.className = item.className || 'dialog-text';
-      p.textContent = item.text || '';
-      modal.appendChild(p);
+      if (item && item.image) {
+        const img = document.createElement('img');
+        img.className = 'illustration';
+        img.src = item.image;
+        img.onerror = () => { try { img.src = 'home.png'; } catch {} };
+        img.alt = item.alt || '';
+        modal.appendChild(img);
+        if (item.text) {
+          const p = document.createElement('p');
+          p.className = item.className || 'dialog-text';
+          p.textContent = item.text;
+          modal.appendChild(p);
+        }
+      } else {
+        const p = document.createElement('p');
+        p.className = item.className || 'dialog-text';
+        p.textContent = item.text || '';
+        modal.appendChild(p);
+      }
     });
+  }
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  if (typeof onClose === 'function') {
+    const btn = document.createElement('button');
+    btn.className = 'button';
+    btn.classList.add('primary');
+    btn.type = 'button';
+    btn.textContent = '繼續';
+    btn.autofocus = true;
+    btn.addEventListener('click', doClose);
+    actions.appendChild(btn);
+    modal.appendChild(actions);
   }
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
   blockingModalOpen = true;
+}
+
+function requirePassword(onSuccess) {
+  if (document.querySelector('.modal-backdrop.active-block')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-backdrop active-block';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = '輸入密碼';
+  const close = document.createElement('button');
+  close.className = 'modal-close';
+  close.type = 'button';
+  close.textContent = '×';
+  close.addEventListener('click', () => { blockingModalOpen = false; document.body.removeChild(overlay); });
+  const promptText = document.createElement('p');
+  promptText.className = 'dialog-text';
+  promptText.textContent = '請輸入開發者密碼';
+  const inputBox = document.createElement('input');
+  inputBox.type = 'password';
+  inputBox.className = 'input';
+  inputBox.placeholder = '密碼';
+  const err = document.createElement('p');
+  err.className = 'dialog-text';
+  err.style.color = '#e57373';
+  err.textContent = '';
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const ok = document.createElement('button');
+  ok.className = 'button';
+  ok.type = 'button';
+  ok.textContent = '確認';
+  const cancel = document.createElement('button');
+  cancel.className = 'button';
+  cancel.type = 'button';
+  cancel.textContent = '取消';
+  cancel.addEventListener('click', () => { blockingModalOpen = false; document.body.removeChild(overlay); });
+  ok.addEventListener('click', () => {
+    const v = inputBox.value.trim();
+    if (v !== DEV_PASSWORD) { err.textContent = '密碼錯誤'; return; }
+    blockingModalOpen = false;
+    document.body.removeChild(overlay);
+    if (typeof onSuccess === 'function') onSuccess();
+  });
+  modal.appendChild(close);
+  modal.appendChild(title);
+  modal.appendChild(promptText);
+  modal.appendChild(inputBox);
+  modal.appendChild(err);
+  actions.appendChild(ok);
+  actions.appendChild(cancel);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  blockingModalOpen = true;
+  inputBox.focus();
 }
 
 function startLetterMazeLevel() {
@@ -2765,7 +3344,6 @@ function startLetterMazeLevel() {
           }
           const gi = Number(currentLetterGoal) - 1;
           showBlockModal('提示', [{ text: goals[gi].feedback }]);
-          matchScore += 10;
           state.achieved[type] = true;
           cell.classList.add('done');
           cell.textContent = '🚶';
@@ -2785,7 +3363,7 @@ function startLetterMazeLevel() {
           }
           cell.textContent = '🚶';
           playerPos = idx;
-          showBlockModal('提示', [{ text: finalGoal.feedback }], () => { level.style.display = 'none'; goToNextLevel(); });
+          showBlockModal('通關', [{ image: 'Mansion.png', alt: '宰相公府大門', text: finalGoal.feedback }], () => { bumpScore(15); level.style.display = 'none'; goToNextLevel(); });
           return;
         }
       });
@@ -2835,6 +3413,9 @@ function start() {
   startScreen.style.display = 'none';
   isGameOver = false;
   systemCleanup(false);
+  document.documentElement.style.removeProperty('--bg-image');
+  document.documentElement.style.removeProperty('--bg-overlay');
+  document.documentElement.style.removeProperty('--bg-overlay');
   resetHpBar();
   createDialogContainer(playerName);
 }
@@ -2849,13 +3430,97 @@ rankHan.addEventListener('click', () => { displayLeaderboard('HanYu'); });
 rankLiu.addEventListener('click', () => { displayLeaderboard('LiuZongyuan'); });
 rankAll.addEventListener('click', () => { displayLeaderboard('All'); });
 document.getElementById('rankClear').addEventListener('click', clearLeaderboard);
+const rankClearAllBtn = document.getElementById('rankClearAll');
+if (rankClearAllBtn) rankClearAllBtn.addEventListener('click', clearLeaderboardAll);
+const cloudBtn = document.getElementById('cloudConfigBtn');
+if (cloudBtn) cloudBtn.addEventListener('click', openCloudConfig);
+const rankExportBtn = document.getElementById('rankExport');
+const rankImportBtn = document.getElementById('rankImport');
+const rankFileInput = document.getElementById('rankFile');
+if (rankExportBtn) rankExportBtn.addEventListener('click', exportLeaderboard);
+const noticeBtn = document.getElementById('noticeBtn');
+if (noticeBtn) noticeBtn.addEventListener('click', openNotice);
+if (rankImportBtn) rankImportBtn.addEventListener('click', () => { if (rankFileInput) rankFileInput.click(); });
+if (rankFileInput) rankFileInput.addEventListener('change', importLeaderboard);
 aboutBtn.addEventListener('click', openAbout);
-if (debugStartBtn) debugStartBtn.addEventListener('click', startDebugLevel);
+if (debugStartBtn) debugStartBtn.addEventListener('click', () => {
+  if (!devModeEnabled) {
+    requirePassword(() => {
+      devModeEnabled = true;
+      const dc = document.getElementById('debugControls');
+      if (dc) dc.style.display = '';
+      const da = debugLevelInput ? debugLevelInput.parentElement : null;
+      if (da) da.style.display = '';
+      startDebugLevel();
+    });
+    return;
+  }
+  startDebugLevel();
+});
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && e.shiftKey && k === 'd') {
+    requirePassword(() => {
+      devModeEnabled = true;
+      const dc = document.getElementById('debugControls');
+      if (dc) dc.style.display = '';
+      const da = debugLevelInput ? debugLevelInput.parentElement : null;
+      if (da) da.style.display = '';
+    });
+  }
+});
 setupBgmAutoplay();
+initBgm();
+playBgm();
+document.documentElement.style.setProperty('--bg-image', "url('home.png')");
+document.documentElement.style.setProperty('--bg-overlay', 'linear-gradient(rgba(0,0,0,0.38), rgba(0,0,0,0.38))');
+const globalBgmToggle = document.getElementById('globalBgmToggle');
+  if (globalBgmToggle) {
+    globalBgmToggle.textContent = bgmEnabled ? '♪' : '🔇';
+    globalBgmToggle.addEventListener('click', toggleBgm);
+  }
+  // 自動從網址參數寫入雲端設定（避免每台裝置手動輸入）。
+  try {
+    const sp = new URLSearchParams(location.search);
+    const ep = sp.get('cloud_endpoint');
+    const au = sp.get('cloud_auth');
+    if (ep) localStorage.setItem('hanliu_cloud_endpoint', ep);
+    if (au) localStorage.setItem('hanliu_cloud_auth', au);
+    const pv = (sp.get('preview') || '').toLowerCase();
+    const sc = parseInt(sp.get('score') || '', 10);
+    const multi = (sp.get('scores') || '').split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+    if (pv === 'ss' || (!isNaN(sc) && sc >= 0)) {
+      cloudSyncDisabled = true;
+      const demoScore = pv === 'ss' ? 301 : Math.max(0, sc);
+      matchScore = demoScore;
+      orderFailed = false;
+      currentRoute = 'HanYu';
+      currentProgress = 'Completed';
+      startTime = Date.now() - 120000;
+      try { saveScore('測試卡-SS預覽', demoScore, currentRoute); } catch {}
+      renderLeaderboardPage('All', pv === 'ss' ? 'SS 稀有特效預覽' : `分數預覽：${demoScore}`);
+      displayLeaderboard('All', true);
+      try { finalizeGame(); } catch {}
+    } else if (pv === 'demo' || (Array.isArray(multi) && multi.length)) {
+      cloudSyncDisabled = true;
+      const sample = pv === 'demo' ? [301, 280, 220, 180, 130, 50, 0] : multi;
+      const baseNames = ['測試卡-SS','測試卡-S','測試卡-A','測試卡-B','測試卡-C','測試卡-D','測試卡-E'];
+      currentRoute = 'HanYu';
+      startTime = Date.now() - 180000;
+      sample.forEach((s, i) => {
+        const nm = baseNames[i] || `測試卡-${s}`;
+        try { saveScore(nm, s, currentRoute); } catch {}
+      });
+      renderLeaderboardPage('All', '預覽成績注入');
+      displayLeaderboard('All', true);
+    }
+  } catch {}
 function showHpBar() {
   const bar = document.getElementById('hpBar');
   if (bar) bar.hidden = false;
   if (bar) {
+    let playerLabel = bar.querySelector('#playerLabel');
+    let playerNameText = bar.querySelector('#playerNameText');
     let scoreLabel = bar.querySelector('#scoreLabel');
     let scoreText = bar.querySelector('#scoreText');
     if (!scoreLabel) {
@@ -2864,6 +3529,20 @@ function showHpBar() {
       scoreLabel.className = 'hp-label';
       scoreLabel.textContent = '分數';
       bar.appendChild(scoreLabel);
+    }
+    if (!playerLabel) {
+      playerLabel = document.createElement('span');
+      playerLabel.id = 'playerLabel';
+      playerLabel.className = 'hp-label';
+      playerLabel.textContent = '玩家';
+      bar.appendChild(playerLabel);
+    }
+    if (!playerNameText) {
+      playerNameText = document.createElement('span');
+      playerNameText.id = 'playerNameText';
+      playerNameText.className = 'hp-text';
+      playerNameText.textContent = localStorage.getItem('hanliu_player_name') || '無名';
+      bar.appendChild(playerNameText);
     }
     if (!scoreText) {
       scoreText = document.createElement('span');
@@ -2888,6 +3567,8 @@ function showHpBar() {
       window.scoreDisplayIntervalId = trackedSetInterval(() => {
         const st = document.getElementById('scoreText');
         if (st) st.textContent = String(matchScore || 0);
+        const pn = document.getElementById('playerNameText');
+        if (pn) pn.textContent = localStorage.getItem('hanliu_player_name') || '無名';
       }, 300);
     }
   }
@@ -2931,6 +3612,9 @@ function startDebugLevel() {
   if (startScreen) startScreen.style.display = 'none';
   isGameOver = false;
   systemCleanup(false);
+  try { localStorage.setItem('hanliu_player_name', '測試卡'); } catch {}
+  if (input) input.value = '測試卡';
+  document.documentElement.style.removeProperty('--bg-image');
   currentRoute = 'HanYu';
   startTime = Date.now();
   currentLevel = n;
@@ -2939,4 +3623,104 @@ function startDebugLevel() {
   matchScore = (n - 1) * 10;
   resetHpBar();
   startNumberLevel(n);
+}
+function getCloudEndpoint() {
+  try { return localStorage.getItem('hanliu_cloud_endpoint') || CLOUD_SYNC_ENDPOINT; } catch { return CLOUD_SYNC_ENDPOINT; }
+}
+function getCloudAuth() {
+  try { return localStorage.getItem('hanliu_cloud_auth') || CLOUD_SYNC_AUTH; } catch { return CLOUD_SYNC_AUTH; }
+}
+
+function openCloudConfig() {
+  const main = document.querySelector('main.container');
+  if (!main) return;
+  const backdrop = document.getElementById('modalBackdrop');
+  if (backdrop) backdrop.hidden = true;
+  const startScreen = document.getElementById('startScreen');
+  if (startScreen) startScreen.style.display = 'none';
+  clearMainContent(true);
+  let sec = document.getElementById('cloudConfigDialog');
+  if (!sec) {
+    sec = document.createElement('section');
+    sec.className = 'dialog-container';
+    sec.id = 'cloudConfigDialog';
+    main.appendChild(sec);
+  }
+  sec.innerHTML = '';
+  const title = document.createElement('h2');
+  title.className = 'modal-title';
+  title.textContent = '雲端排行榜設定';
+  const epInput = document.createElement('input');
+  epInput.className = 'input';
+  epInput.type = 'text';
+  epInput.placeholder = 'Endpoint，例如 https://xxx.workers.dev/scores';
+  epInput.value = getCloudEndpoint() || '';
+  const authInput = document.createElement('input');
+  authInput.className = 'input';
+  authInput.type = 'text';
+  authInput.placeholder = 'Authorization（可空），例如 Bearer xxx';
+  authInput.value = getCloudAuth() || '';
+  const status = document.createElement('p');
+  status.className = 'dialog-text';
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const save = document.createElement('button');
+  save.className = 'button';
+  save.type = 'button';
+  save.textContent = '保存';
+  const test = document.createElement('button');
+  test.className = 'button';
+  test.type = 'button';
+  test.textContent = '測試連線';
+  const wipe = document.createElement('button');
+  wipe.className = 'button';
+  wipe.type = 'button';
+  wipe.textContent = '清除雲端全部';
+  const close = document.createElement('button');
+  close.className = 'button';
+  close.type = 'button';
+  close.textContent = '返回首頁';
+  save.addEventListener('click', () => {
+    try { localStorage.setItem('hanliu_cloud_endpoint', epInput.value.trim()); } catch {}
+    try { if (authInput.value.trim()) localStorage.setItem('hanliu_cloud_auth', authInput.value.trim()); else localStorage.removeItem('hanliu_cloud_auth'); } catch {}
+    status.textContent = '已保存';
+  });
+  test.addEventListener('click', () => {
+    const url = epInput.value.trim();
+    if (!url) { status.textContent = '請先填入 Endpoint'; return; }
+    fetch(url, { headers: { ...(authInput.value.trim() ? { authorization: authInput.value.trim() } : {}) } })
+      .then(async (r) => {
+        const txt = await r.text().catch(() => '');
+        if (!r.ok) {
+          status.textContent = `連線失敗：HTTP ${r.status} ${r.statusText}${txt ? '｜' + txt.slice(0, 160) : ''}`;
+          return;
+        }
+        let data = null;
+        try { data = JSON.parse(txt); } catch { data = null; }
+        if (Array.isArray(data)) status.textContent = `連線成功，共有 ${data.length} 筆資料`;
+        else status.textContent = '連線成功';
+      })
+      .catch((err) => { status.textContent = `連線失敗：${String(err && err.message || err)}`; });
+  });
+  wipe.addEventListener('click', () => {
+    const url = epInput.value.trim();
+    const authVal = authInput.value.trim();
+    if (!url) { status.textContent = '請先填入 Endpoint'; return; }
+    try { localStorage.setItem('hanliu_cloud_endpoint', url); } catch {}
+    try { if (authVal) localStorage.setItem('hanliu_cloud_auth', authVal); else localStorage.removeItem('hanliu_cloud_auth'); } catch {}
+    status.textContent = '正在清除雲端...';
+    wipeCloudScores()
+      .then(() => { status.textContent = '雲端已清除'; })
+      .catch((err) => { status.textContent = `清除失敗：${String(err && err.message || err)}`; });
+  });
+  close.addEventListener('click', () => { sec.remove(); const start = document.getElementById('startScreen'); if (start) start.style.display = ''; });
+  actions.appendChild(save);
+  actions.appendChild(test);
+  actions.appendChild(wipe);
+  actions.appendChild(close);
+  sec.appendChild(title);
+  sec.appendChild(epInput);
+  sec.appendChild(authInput);
+  sec.appendChild(status);
+  sec.appendChild(actions);
 }

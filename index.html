@@ -19,14 +19,15 @@
       <div class="actions">
         <button id="startBtn" class="button" type="button">開始遊戲</button>
         <button id="leaderboardBtn" class="button" type="button">排行榜</button>
+        <button id="noticeBtn" class="button" type="button">公告</button>
         <button id="aboutBtn" class="button" type="button">關於遊戲</button>
       </div>
       <div class="controls" id="debugControls">
-        <label for="debugLevelInput" class="dialog-text" style="margin-top:1rem">除錯模式：選擇起始關卡</label>
+        <label for="debugLevelInput" class="dialog-text" style="margin-top:1rem">開發者模式：選擇起始關卡</label>
       </div>
       <div class="actions">
         <input id="debugLevelInput" class="input" type="number" min="1" max="10" value="1" aria-label="選擇關卡">
-        <button id="debugStartBtn" class="button" type="button">啟動測試關卡</button>
+        <button id="debugStartBtn" class="button" type="button">啟動開發者關卡</button>
       </div>
     </div>
   </main>
@@ -47,9 +48,15 @@
         <button id="rankAll" class="button" type="button">綜合排行榜</button>
       </div>
       <div id="leaderboardContent" class="leaderboard-content"></div>
-      <button id="rankClear" class="button" type="button">清除排行榜</button>
+      <div class="actions" style="margin-top:0.75rem">
+        <button id="rankClear" class="button" type="button">清除排行榜</button>
+        <button id="rankClearAll" class="button" type="button">一鍵清除（本機＋雲端）</button>
+        
+      </div>
       <button id="modalClose" class="modal-close" type="button" aria-label="關閉">×</button>
     </div>
   </div>
+  <button id="globalBgmToggle" class="button sound-toggle" type="button" aria-label="音樂開關">♪</button>
+  <a id="feedback-btn" href="https://mail.google.com/mail/?view=cm&fs=1&to=50327willy50327@gmail.com&su=%E3%80%90%E5%AF%92%E6%B5%81%E3%80%91%E9%81%8A%E6%88%B2%E5%9B%9E%E5%A0%B1%E8%88%87%E5%BB%BA%E8%AD%B0" target="_blank" rel="noopener">回報錯誤 / 提供建議</a>
 </body>
 </html>

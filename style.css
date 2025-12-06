@@ -5,13 +5,19 @@
   --surface: #111112;
   --accent: #6ea3b5;
   --title: #ffffff;
+  --bg-image: none;
+  --bg-overlay: none;
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { height: 100%; overflow: hidden; }
 body {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--bg-overlay), var(--bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   color: var(--fg);
   font-family: ui-serif, "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   -webkit-font-smoothing: antialiased;
@@ -19,7 +25,7 @@ body {
 }
 
 .container {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   place-items: center;
   padding: 2rem;
@@ -144,9 +150,19 @@ body {
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid #2a2a2a;
 }
+.leaderboard-content .row.rank-ss { position: relative; overflow: hidden; background: linear-gradient(90deg, #ffd54f, #ffb74d); color: #1a1a1a; border-radius: 8px; border-bottom: none; background-size: 200% 100%; animation: ssShimmer 18s linear infinite, ssPulse 4.8s ease-in-out infinite; box-shadow: 0 0 0 1px #ffb74d inset, 0 0 18px rgba(255, 183, 77, 0.38); will-change: background-position, box-shadow, transform; }
+.leaderboard-content .row.rank-ss::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%); transform: translateX(-100%); animation: ssHighlight 5.8s linear infinite; pointer-events: none; }
+.leaderboard-content .row.rank-ss::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle, rgba(255,255,255,0.32) 0px, rgba(255,255,255,0.32) 1.2px, transparent 1.8px), repeating-linear-gradient(135deg, rgba(255,255,255,0.08) 0 10px, rgba(255,255,255,0) 10px 20px); background-size: 24px 24px, 200% 100%; background-position: 0 0, 0 0; opacity: 0.35; animation: ssTwinkle 9.5s linear infinite, ssSweep 12s linear infinite; pointer-events: none; }
+.leaderboard-content .row.rank-ss .name, .leaderboard-content .row.rank-ss .score, .leaderboard-content .row.rank-ss .route { color: #1a1a1a; }
 .leaderboard-content .row .name { color: #d8dee9; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.45); }
 .leaderboard-content .row .score { color: #7bd389; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.45); }
 .leaderboard-content .row .route { color: #9aa0a6; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.45); }
+
+@keyframes ssShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
+@keyframes ssHighlight { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes ssTwinkle { 0% { opacity: 0.25; background-position: 0 0; } 50% { opacity: 0.45; background-position: -10px -6px; } 100% { opacity: 0.25; background-position: 0 0; } }
+@keyframes ssPulse { 0% { box-shadow: 0 0 0 1px #ffb74d inset, 0 0 14px rgba(255,183,77,0.30); transform: scale(1.0); } 50% { box-shadow: 0 0 0 1px #ffb74d inset, 0 0 22px rgba(255,183,77,0.40); transform: scale(1.01); } 100% { box-shadow: 0 0 0 1px #ffb74d inset, 0 0 14px rgba(255,183,77,0.30); transform: scale(1.0); } }
+@keyframes ssSweep { 0% { background-position: 0 0, 0 0; } 100% { background-position: 0 0, 100% 0; } }
 
 .modal-close {
   position: absolute;
@@ -164,27 +180,40 @@ body {
   z-index: 2;
 }
 
+.modal.hc3 .modal-title { color: #ffffff; text-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+.modal.hc3 .dialog-text { color: #f1f5f9; font-weight: 900; letter-spacing: 0.04em; text-shadow: 0 1px 0 rgba(0,0,0,0.35); }
+
+.illustration {
+  width: min(720px, 92vw);
+  max-height: 70vh;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.45);
+}
+
 .dialog-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1rem;
   padding: 2rem;
   text-align: center;
+  max-height: 90vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dialog-text { max-width: 60ch; line-height: 1.8; color: var(--fg); }
+.dialog-text { overflow-wrap: anywhere; word-break: break-word; }
+.dialog-container .dialog-text { color: var(--fg); font-weight: 800; letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(0,0,0,0.35); }
+.dialog-container > * { max-width: 92vw; }
 
 .choices { display: flex; gap: 0.75rem; justify-content: center; }
 .choices .button { margin-top: 0; }
 
-#levelSentence .modal-title {
-  color: #0b1f3a;
-  font-size: 1.75rem;
-  font-weight: 700;
-  text-shadow: 0 1px 0 rgba(0,0,0,0.15);
-}
+ 
 
 #levelSentence .button {
   color: #f7fbff;
@@ -303,11 +332,7 @@ body {
   60% { opacity: 0.6; filter: blur(2px); }
   100% { opacity: 0; filter: blur(3px); }
 }
-#levelExam .modal-title {
-  color: #0b1f3a;
-  font-size: 1.75rem;
-  font-weight: 700;
-}
+ 
 
 .blank {
   display: inline-block;
@@ -342,9 +367,38 @@ body {
 .idea-ok { background: linear-gradient(180deg, #2a4f78, #0b1f3a); border-color: #8fc3d6; color: #ffffff; font-weight: 800; font-size: 1.05rem; padding: 0.95rem 1.35rem; box-shadow: 0 2px 8px rgba(0,0,0,0.35); opacity: 1 !important; }
 .idea-ok:hover { border-color: #a4d3e2; }
 
-#levelLetterMaze .modal-title { color: #0b1f3a; font-size: 1.75rem; font-weight: 700; }
-.modal-title { margin: 0 0 1rem; font-size: 1.5rem; letter-spacing: 0.12em; color: #d8dee9; text-align: center; }
-#levelPoetry .modal-title { color: #0b1f3a; font-size: 1.95rem; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.15); }
+ 
+.modal-title { margin: 0 0 1rem; font-size: 1.9rem; letter-spacing: 0.12em; color: var(--title); text-align: center; font-weight: 900; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.modal .dialog-text { color: #f1f5f9; font-size: 1.15rem; font-weight: 900; letter-spacing: 0.04em; text-shadow: 0 1px 0 rgba(0,0,0,0.35); }
+
+/* 分數浮動提示 */
+.score-float {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  color: #7bd389;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  animation: scoreFloatUp 800ms ease-out 1;
+  pointer-events: none;
+}
+.score-float.neg { color: #e84e4e; }
+@keyframes scoreFloatUp {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  15% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 0.9; transform: translate(-50%, -16px); }
+  100% { opacity: 0; transform: translate(-50%, -28px); }
+}
+ .score-bump { display: inline-block; animation: scoreTextFollow 800ms ease-out 1; }
+ @keyframes scoreTextFollow {
+   0% { transform: translateY(0); }
+   15% { transform: translateY(-2px); }
+   80% { transform: translateY(-12px); }
+   100% { transform: translateY(0); }
+ }
+ 
 #levelPoetry { padding-right: 160px; padding-bottom: 160px; }
 .maze-grid {
   display: grid;
@@ -372,7 +426,7 @@ body {
 .maze-cell.done { background: linear-gradient(180deg, #204b36, #10251b); color: #cfead6; }
 .maze-cell.wall { background: linear-gradient(180deg, #0f1011, #0b0c0d); color: #4a4d52; font-weight: 600; }
 .maze-cell.player { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent); }
-#levelFiveOriginals .modal-title { color: #0b1f3a; font-size: 1.85rem; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.15); }
+ 
 #levelFiveOriginals .card-grid { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); grid-auto-rows: 120px; gap: 12px; padding: 0.5rem; }
 #levelFiveOriginals .match-card { position: relative; padding: 0; border: none; background: none; cursor: pointer; perspective: 800px; }
 #levelFiveOriginals .match-card:hover { transform: translateY(-1px); }
@@ -383,12 +437,12 @@ body {
 #levelFiveOriginals .card-front { background: linear-gradient(180deg, #2a4f78, #0b1f3a); color: #f7fbff; border-color: #6ea3b5; transform: rotateY(180deg); }
 #levelFiveOriginals .match-card.matched { visibility: hidden; opacity: 0; pointer-events: none; }
 #levelFiveOriginals { padding-right: 160px; padding-bottom: 160px; }
-#levelHuaiXi .modal-title { color: #0b1f3a; font-size: 1.95rem; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.15); }
+ 
 #levelHuaiXi { padding-right: 160px; padding-bottom: 160px; }
 #levelHuaiXi .catch-stage { position: relative; width: min(860px, 92vw); height: min(520px, 70vh); border: 1px solid #2a2a2a; border-radius: 12px; background: var(--surface); overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,0.35); }
 #levelHuaiXi .fall-item { position: absolute; transform: translate(-50%, -50%); padding: 0.35rem 0.6rem; border-radius: 10px; border: 1px solid #2a2a2a; background: linear-gradient(180deg, #1d1f21, #161719); color: #f7fbff; font-weight: 800; letter-spacing: 0.06em; box-shadow: 0 6px 16px rgba(0,0,0,0.25); will-change: transform, top, left; }
 #levelHuaiXi .catcher { position: absolute; bottom: 2%; left: 50%; transform: translateX(-50%); width: 120px; height: 18px; border-radius: 10px; border: 1px solid #2a2a2a; background: linear-gradient(180deg, #2a4f78, #0b1f3a); box-shadow: 0 6px 16px rgba(0,0,0,0.25); }
-#levelAdmonish .modal-title { color: #0b1f3a; font-size: 1.95rem; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.15); }
+ 
 #levelAdmonish { padding-right: 160px; padding-bottom: 160px; }
 #levelAdmonish .catch-stage { position: relative; width: min(860px, 92vw); height: min(520px, 70vh); border: 1px solid #2a2a2a; border-radius: 12px; background: var(--surface); overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,0.35); }
 #levelAdmonish .fall-item { position: absolute; transform: translate(-50%, -50%); padding: 0.35rem 0.6rem; border-radius: 10px; border: 1px solid #2a2a2a; background: linear-gradient(180deg, #1d1f21, #161719); color: #f7fbff; font-weight: 800; letter-spacing: 0.06em; box-shadow: 0 6px 16px rgba(0,0,0,0.25); will-change: transform, top, left; }
@@ -426,7 +480,8 @@ body {
 .btn { padding: 10px 20px; cursor: pointer; background: #c0392b; color: #fff; }
 #score-display { position: absolute; top: 10px; left: 10px; font-size: clamp(14px, 3.2vw, 20px); z-index: 5; color: #333; }
 
-.dialog-container span { color: #ffffff; font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.45); }
+.dialog-container span { color: var(--fg); font-weight: 800; text-shadow: 0 1px 0 rgba(0,0,0,0.45); }
+.dialog-container .blank { color: #000000 !important; }
 @media (max-width: 600px) {
   .dialog-container { padding: 1rem; }
   #levelPoetry, #levelFiveOriginals, #levelHuaiXi, #levelAdmonish { padding-right: 0; padding-bottom: 0; }
@@ -436,3 +491,76 @@ body {
 @media (max-width: 900px) {
   #levelFiveOriginals .card-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
 }
+#globalBgmToggle.button.sound-toggle,
+.sound-toggle {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 1000;
+  padding: 0.3rem 0.5rem;
+}
+/* 全域回報按鈕樣式 */
+#feedback-btn  {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background-color: #3498db;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 16px;
+    z-index: 1000;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    transition: background-color 0.3s;
+}
+
+#feedback-btn:hover  {
+    background-color: #2980b9; /* 懸停時顏色變深 */
+}
+
+/* 響應式：在手機上稍微縮小並調整位置 */
+@media screen and (max-width: 800px ) {
+    #feedback-btn  {
+        bottom: 10px;
+        left: 10px;
+        font-size: 14px;
+        padding: 8px 12px;
+    }
+}
+/* 第一關：句讀明義互動版 */
+.seg-box {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  background: #fff8e6;
+  border: 3px solid #b87333;
+}
+.seg-char {
+  font-size: clamp(20px, 3vw, 28px);
+  color: #0b1f3a;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.12);
+}
+.seg-gap {
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 6px;
+  border: 2px dashed #e0b36a;
+  background: #fff3c4;
+  color: #0b1f3a;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.seg-gap.active {
+  border-style: solid;
+  background: #f8e78e;
+}
+.dialog-container .seg-char { color: #0b1f3a !important; }
+.hint-text { color: #4a5b6b; }
+#startScreen .title { color: #ffffff; font-weight: 900; text-shadow: 0 2px 12px rgba(0,0,0,0.6); }
+#startScreen .intro { color: #f1f5f9; font-size: 1.2rem; font-weight: 800; letter-spacing: 0.02em; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+#startScreen .input { background: rgba(0,0,0,0.5); border-color: #335; color: #ffffff; }
+#startScreen .button { background: linear-gradient(180deg, rgba(24,26,28,0.92), rgba(18,19,21,0.92)); border-color: #335; }
